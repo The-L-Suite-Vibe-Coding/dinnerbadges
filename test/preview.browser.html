@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>preview.browser.js — real-browser verification for js/preview.js</title>
+<!--
+  Driver page for test/preview.browser.js (item 6, live preview).
+
+  Open this in a browser — over http://localhost or straight from file://, both work.
+  It loads the same module chain as index.html, seeds BadgeStore from
+  test/preview.fixture.js (generated from test/fixtures/six.json and fourteen.json),
+  runs the suite, and prints the measured numbers below the sheet.
+
+  Nothing here is fetched. The node-runnable half of the suite is
+  test/preview.test.js; this page covers what only a real browser can: rendered
+  pixel positions, pagination clicks, and escaping in a live document.
+
+  localStorage is snapshotted on entry and restored on exit, so running the suite
+  does not clobber whatever roster you had open in index.html.
+-->
+<link rel="stylesheet" href="../fonts/inter-face.css">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { background: #e9e9ec; }
+  .tb-wrap { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .tb-report { width: min(1000px, 96vw); background: #fff; border: 1px solid #d6d6db;
+               border-radius: 6px; padding: 14px 16px; }
+  .tb-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .tb-head h1 { font-size: 15px; margin: 0; }
+  .tb-verdict { font-weight: 700; }
+  .tb-pass { color: #17632f; }
+  .tb-fail { color: #a11; }
+  .tb-report pre { font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+                   white-space: pre-wrap; margin: 10px 0 0; color: #33333a; }
+</style>
+</head>
+<body>
+<div class="tb-wrap">
+  <div id="preview-root"></div>
+  <div id="page-nav"></div>
+
+  <div class="tb-report">
+    <div class="tb-head">
+      <h1>preview.browser.js</h1>
+      <span class="tb-verdict" id="verdict">running…</span>
+      <span style="font-size:12px;color:#83838d">node half: <code>node test/preview.test.js</code></span>
+    </div>
+    <pre id="report"></pre>
+  </div>
+</div>
+
+<script src="../fonts/inter-metrics.js"></script>
+<script src="../js/spec.js"></script>
+<script src="../js/layout.js"></script>
+<script src="../js/store.js"></script>
+<script src="preview.fixture.js"></script>
+<script src="../js/preview.js"></script>
+<script src="preview.browser.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* Minimal bus, so this page does not need app.js (and so the side-panel modules
+     stay out of the way). Same three events. */
+  var listeners = {};
+  window.BadgeBus = {
+    on: function (e, f) { (listeners[e] = listeners[e] || []).push(f); return function () {}; },
+    emit: function (e, p) {
+      (listeners[e] || []).forEach(function (f) { try { f(p); } catch (x) {} });
+    }
+  };
+
+  /* Snapshot the app's real localStorage so the suite can trample it safely. */
+  var KEYS = window.BadgeStore.KEYS;
+  var saved = {};
+  var canSave = true;
+  try {
+    Object.keys(KEYS).forEach(function (k) { saved[KEYS[k]] = localStorage.getItem(KEYS[k]); });
+  } catch (err) { canSave = false; }
+
+  function restore() {
+    if (!canSave) return;
+    try {
+      Object.keys(saved).forEach(function (key) {
+        if (saved[key] === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, saved[key]);
+      });
+    } catch (err) { /* nothing useful to do */ }
+  }
+
+  var verdict = document.getElementById('verdict');
+  var report = document.getElementById('report');
+
+  function show(text, pass) {
+    report.textContent = text;
+    verdict.textContent = pass ? 'PASS' : 'FAIL';
+    verdict.className = 'tb-verdict ' + (pass ? 'tb-pass' : 'tb-fail');
+    document.documentElement.setAttribute('data-tests-done', pass ? 'pass' : 'fail');
+  }
+
+  window.BadgeStore.init();
+  window.BadgePreview.mount();
+
+  var fx = window.PREVIEW_FIXTURES;
+
+  function run() {
+    window.PreviewTests.run(fx.six, fx.fourteen).then(function (res) {
+      window.__RES = res;
+      var lines = [];
+      lines.push(res.summary.passed + ' / ' + res.summary.total + ' checks passed');
+      lines.push('');
+      lines.push(res.checks.join('\n'));
+      if (res.failures.length) {
+        lines.push('');
+        lines.push('FAILURES:');
+        lines.push(JSON.stringify(res.failures, null, 1));
+      }
+      lines.push('');
+      lines.push('--- measured numbers ---');
+      lines.push(JSON.stringify(res.data, null, 1));
+      show(lines.join('\n'), res.summary.failed === 0);
+
+      /* Leave the 6-attendee sheet on screen, then put the user's data back. */
+      window.BadgeStore.setAttendees(fx.six);
+      window.BadgeStore.setPageIndex(0);
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          window.BadgePreview.render();
+          restore();
+        });
+      });
+    }, function (err) {
+      show('suite threw: ' + (err && err.stack ? err.stack : err), false);
+      restore();
+    });
+  }
+
+  /* Wait for the three Inter faces so the very first measurement is not taken
+     during the font-display:block period. */
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(run, run);
+  else run();
+
+  window.addEventListener('beforeunload', restore);
+})();
+</script>
+</body>
+</html>

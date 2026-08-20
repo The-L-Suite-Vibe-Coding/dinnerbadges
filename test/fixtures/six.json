@@ -1,0 +1,8 @@
+[
+  { "id": "f1", "first": "Marguerite", "last": "Delacroix",        "title": "General Counsel",                     "company": "Northwind Analytics" },
+  { "id": "f2", "first": "Tobias",     "last": "Ferndale",         "title": "Deputy General Counsel",              "company": "Halcyon Robotics" },
+  { "id": "f3", "first": "Priya",      "last": "Ramaswamy",        "title": "VP, Legal & Compliance",              "company": "Bluewater Systems" },
+  { "id": "f4", "first": "Desmond",    "last": "Achebe",           "title": "Associate General Counsel",           "company": "Vantage Grid" },
+  { "id": "f5", "first": "Ingrid",     "last": "Halvorsen",        "title": "Chief Legal Officer",                 "company": "Meridian Freight" },
+  { "id": "f6", "first": "Rafael",     "last": "Ontiveros",        "title": "Senior Counsel, Commercial",          "company": "Cobalt Health" }
+]

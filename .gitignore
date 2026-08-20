@@ -1,0 +1,29 @@
+# Defensive: real attendee data must never be committed.
+# Attendee lists arrive as Word, CSV, and Excel, so all four are ignored by default.
+*.docx
+*.doc
+*.csv
+*.xlsx
+
+# Generated PDFs (badge sheets, test output) stay local.
+*.pdf
+test/out/
+test/output/
+
+# OS / tooling noise
+.DS_Store
+Thumbs.db
+node_modules/
+npm-debug.log*
+
+# --- Negations: MUST stay last so they win. ---------------------------------
+# Re-include ONLY the specific committed fixtures the acceptance tests need.
+# Git applies the LAST matching pattern, so these lines must not be moved up.
+#
+# Deliberately narrow: do NOT broaden this to `!test/fixtures/` or
+# `!test/fixtures/**`. A recursive negation would make ANY .csv/.xlsx/.pdf under
+# test/fixtures committable, and that directory is precisely where someone would
+# drop a real attendee export while testing the importer. Named files only.
+# Adding a new fixture in an ignored format means adding a line here for it.
+!test/fixtures/import-sample.csv
+!test/fixtures/*.json

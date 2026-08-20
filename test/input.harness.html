@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>input.js manual harness</title>
+<!-- Manual browser harness for js/input.js ONLY. Not part of the shipped app.
+     Opens under file:// with no server and no network.
+
+     By default it loads the REAL js/store.js, so what you see is the shipped
+     integration. It instruments two things so write behaviour is observable:
+
+       * localStorage.setItem on the attendees key  -> counted + logged
+       * BadgeBus.emit('data:changed')              -> counted + logged
+
+     One click on Move up / Move down must produce exactly ONE of each, and the
+     single persisted order must already be correct. That is the regression this
+     harness exists to make visible.
+
+     Append ?stub=1 to swap in a minimal stub store (getAttendees/setAttendees
+     only) to exercise input.js's get/set fallback path instead.
+
+     All names here are invented. -->
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { padding: 0; }
+  .harness-bar {
+    position: sticky; top: 0; z-index: 5; display: flex; gap: 10px;
+    align-items: center; flex-wrap: wrap;
+    padding: 8px 12px; background: #fff; border-bottom: 1px solid #d6d6db;
+    font: 12px/1.4 system-ui, sans-serif;
+  }
+  .harness-log {
+    font: 11px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+    padding: 8px 12px; max-height: 24vh; overflow: auto; background: #f6f6f8;
+    border-bottom: 1px solid #d6d6db; margin: 0;
+  }
+  .harness-body { display: flex; align-items: flex-start; }
+  .side-panel { height: auto; position: static; }
+  #dump { flex: 1 1 auto; padding: 12px; font: 11px/1.5 ui-monospace, Menlo, monospace;
+          white-space: pre-wrap; }
+  .counter { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="harness-bar">
+  <strong>input.js harness</strong>
+  <span id="mode"></span>
+  <button type="button" id="seed">Seed 8 (A-H)</button>
+  <button type="button" id="seed-hostile">Seed hostile name</button>
+  <button type="button" id="reset">Reset counters</button>
+  <button type="button" id="wipe">Wipe data</button>
+  <span class="counter" id="counters"></span>
+</div>
+
+<pre class="harness-log" id="log"></pre>
+
+<div class="harness-body">
+  <div id="dump"></div>
+
+  <aside class="side-panel" id="side-panel">
+    <div id="entry-form"></div>
+    <div id="bulk-paste"></div>
+    <div id="csv-import"></div>
+    <div id="attendee-list"></div>
+    <div id="data-controls"></div>
+  </aside>
+</div>
+
+<!-- Instrumentation must be installed BEFORE store.js loads and reads/writes. -->
+<script>
+(function () {
+  'use strict';
+
+  var USE_STUB = /[?&]stub=1/.test(window.location.search);
+
+  var logEl = document.getElementById('log');
+  function log(msg) {
+    logEl.textContent += msg + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  window.__log = log;
+
+  /* ---------------------------------------------- counters + instrumentation */
+  var counts = { writes: 0, broadcasts: 0, persisted: [] };
+  window.__counts = counts;
+
+  function names(arr) {
+    return (arr || []).map(function (a) { return a.first; }).join('');
+  }
+
+  function refreshCounters() {
+    document.getElementById('counters').textContent =
+      'localStorage writes: ' + counts.writes +
+      '  |  data:changed: ' + counts.broadcasts +
+      '  |  persisted: [' + counts.persisted.join(', ') + ']';
+  }
+  window.__refreshCounters = refreshCounters;
+
+  var ATT_KEY = 'lsuite.badges.attendees';
+  var realSetItem = window.localStorage.setItem.bind(window.localStorage);
+  window.localStorage.setItem = function (k, v) {
+    if (k === ATT_KEY) {
+      counts.writes++;
+      var order = '?';
+      try { order = names(JSON.parse(v)); } catch (e) { order = '(unparseable)'; }
+      counts.persisted.push(order);
+      log('localStorage WRITE #' + counts.writes + ' -> ' + (order || '(empty)'));
+      refreshCounters();
+    }
+    return realSetItem(k, v);
+  };
+
+  /* Bus first, so store.js emits into an instrumented one. */
+  var listeners = {};
+  window.BadgeBus = {
+    on: function (evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); },
+    emit: function (evt, payload) {
+      if (evt === 'data:changed') {
+        counts.broadcasts++;
+        log('BROADCAST data:changed #' + counts.broadcasts +
+            ' -> ' + names(payload && payload.attendees));
+        refreshCounters();
+      }
+      (listeners[evt] || []).forEach(function (f) {
+        try { f(payload); } catch (e) { log('listener threw: ' + e); }
+      });
+    }
+  };
+
+  /* -------------------------------------------------------- optional stub store
+     Installed by a script tag placed AFTER store.js — store.js assigns
+     window.BadgeStore itself, so installing the stub here would just be
+     overwritten and the harness would silently exercise the real store. */
+  window.__installStub = function () {
+    var list = [];
+    var subs = [];
+    function notify() {
+      subs.forEach(function (f) { try { f(); } catch (e) { log('sub threw: ' + e); } });
+      window.BadgeBus.emit('data:changed', { attendees: list.slice() });
+      window.__dump();
+    }
+    window.BadgeStore = {
+      /* Deliberately ONLY the shared-contract minimum, to exercise the fallback. */
+      getAttendees: function () { return list.map(function (a) { return Object.assign({}, a); }); },
+      setAttendees: function (arr) {
+        log('stub setAttendees(' + arr.length + ')');
+        list = arr.map(function (a) { return Object.assign({}, a); });
+        window.localStorage.setItem(ATT_KEY, JSON.stringify(list)); // so writes still count
+        notify();
+      },
+      getOverrides: function () { return {}; },
+      setOverride: function () {},
+      getPageIndex: function () { return 0; },
+      setPageIndex: function () {},
+      clearAll: function () { list = []; notify(); },
+      subscribe: function (fn) { subs.push(fn); return function () {}; }
+    };
+    log('stub store installed (getAttendees/setAttendees only)');
+  };
+
+  window.__dump = function () {
+    var s = window.BadgeStore;
+    var arr = (s && typeof s.getAttendees === 'function') ? s.getAttendees() : [];
+    document.getElementById('dump').textContent =
+      'BadgeStore.getAttendees() -> ' + JSON.stringify(arr, null, 2);
+  };
+
+  document.getElementById('mode').textContent = USE_STUB
+    ? 'mode: STUB store (get/set fallback path)'
+    : 'mode: REAL js/store.js';
+})();
+</script>
+
+<script src="../js/spec.js"></script>
+<script src="../js/store.js"></script>
+<!-- After store.js, so ?stub=1 really replaces it rather than being overwritten. -->
+<script>
+if (/[?&]stub=1/.test(window.location.search) && window.__installStub) window.__installStub();
+</script>
+<script src="../js/input.js"></script>
+
+<script>
+(function () {
+  'use strict';
+  var log = window.__log;
+  var counts = window.__counts;
+
+  var SEED = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map(function (n) {
+    return { id: 'seed-' + n, first: n, last: 'Lastname' + n, title: 'Counsel', company: 'Co' + n };
+  });
+
+  function boot() {
+    if (window.BadgeStore && typeof window.BadgeStore.init === 'function') {
+      window.BadgeStore.init();
+    }
+    if (!window.BadgeInput || typeof window.BadgeInput.mount !== 'function') {
+      log('BadgeInput missing!');
+      return;
+    }
+    window.BadgeInput.mount();
+    log('BadgeInput.mount() returned cleanly');
+    window.__dump();
+    window.__refreshCounters();
+
+    document.getElementById('seed').addEventListener('click', function () {
+      window.BadgeStore.setAttendees(SEED);
+      log('seeded A-H');
+      window.__dump();
+    });
+
+    document.getElementById('seed-hostile').addEventListener('click', function () {
+      var cur = window.BadgeStore.getAttendees();
+      cur.push({
+        id: 'hostile-1',
+        first: 'Wren',
+        last: '<img src=x onerror="window.__log(\'XSS FIRED - TEST FAILED\')">',
+        title: 'Counsel & "Advisor"',
+        company: '<script>window.__log("XSS FIRED - TEST FAILED")<\/script>'
+      });
+      window.BadgeStore.setAttendees(cur);
+      log('added hostile row - nothing should fire');
+      window.__dump();
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      counts.writes = 0; counts.broadcasts = 0; counts.persisted.length = 0;
+      document.getElementById('log').textContent = '';
+      window.__refreshCounters();
+      log('counters reset');
+    });
+
+    document.getElementById('wipe').addEventListener('click', function () {
+      if (typeof window.BadgeStore.clearAll === 'function') window.BadgeStore.clearAll();
+      else window.BadgeStore.setAttendees([]);
+      log('wiped');
+      window.__dump();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+
+</body>
+</html>

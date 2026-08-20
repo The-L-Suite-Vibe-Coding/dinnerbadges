@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>preview screenshot page — 6-badge sheet</title>
+<!--
+  Screenshot fixture page for item 6 (live preview). Same script chain and same
+  mount points as index.html, minus the side panel, so a headless screenshot shows
+  only the sheet. Seeds BadgeStore from test/preview.fixture.js (generated from
+  test/fixtures/six.json) — no fetch, no XHR, works from file:// too.
+-->
+<link rel="stylesheet" href="../fonts/inter-face.css">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  /* Screenshot framing only: centre the sheet on the neutral backdrop. */
+  body { background: #e9e9ec; }
+  .shot-wrap { padding: 28px; display: flex; flex-direction: column;
+               align-items: center; gap: 18px; }
+</style>
+</head>
+<body>
+<div class="shot-wrap">
+  <div id="preview-root"></div>
+  <div id="page-nav"></div>
+</div>
+
+<script src="../fonts/inter-metrics.js"></script>
+<script src="../js/spec.js"></script>
+<script src="../js/layout.js"></script>
+<script src="../js/store.js"></script>
+<script src="preview.fixture.js"></script>
+<script src="../js/preview.js"></script>
+<script>
+/* Minimal bus (app.js is not loaded here so the panel modules stay out of the shot). */
+(function () {
+  var l = {};
+  window.BadgeBus = {
+    on: function (e, f) { (l[e] = l[e] || []).push(f); return function () {}; },
+    emit: function (e, p) { (l[e] || []).forEach(function (f) { try { f(p); } catch (x) {} }); }
+  };
+  window.BadgeStore.init();
+  window.BadgeStore.setAttendees(window.PREVIEW_FIXTURE_SIX);
+  window.BadgeStore.setPageIndex(0);
+
+  /* Optional flags so one page can capture every variant:
+       ?logo            1 x 1 in bottom-right reserve on
+       ?logo=1.5x0.5    a custom reserve, in inches
+       ?preset=avery    the Avery grid placement
+       ?align=center    centred text (default is left)
+     Read from location.search — no network, works from file:// too. */
+  var q = new URLSearchParams(window.location.search);
+  if (q.has('logo') && typeof window.BadgeStore.setLogo === 'function') {
+    var dims = (q.get('logo') || '').split('x');
+    var w = parseFloat(dims[0]);
+    var h = parseFloat(dims[1]);
+    window.BadgeStore.setLogo({
+      enabled: true,
+      wIn: isFinite(w) ? w : 1,
+      hIn: isFinite(h) ? h : (isFinite(w) ? w : 1)
+    });
+  }
+  if (q.has('preset') && typeof window.BadgeStore.setSheetPreset === 'function') {
+    window.BadgeStore.setSheetPreset(q.get('preset'));
+  }
+  /* ?align=center (default is left) */
+  if (q.has('align') && typeof window.BadgeStore.setAlign === 'function') {
+    window.BadgeStore.setAlign(q.get('align'));
+  }
+
+  window.BadgePreview.mount();
+  /* Repaint once the three Inter faces are in, so a headless capture is never
+     taken during the font-display:block period. */
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      window.BadgePreview.render();
+      document.documentElement.setAttribute('data-shot-ready', '1');
+    });
+  } else {
+    document.documentElement.setAttribute('data-shot-ready', '1');
+  }
+})();
+</script>
+</body>
+</html>

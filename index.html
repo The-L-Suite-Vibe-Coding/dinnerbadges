@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Badge Sheet Builder</title>
+<!-- Inter @font-face lives in fonts/inter-face.css (owned by the fonts item).
+     If that file is absent the page still works; the UI chrome falls back to system-ui. -->
+<link rel="stylesheet" href="fonts/inter-face.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- LEFT: preview area (flexible, scrolls independently) -->
+  <main class="preview-col" id="preview-col">
+    <div class="preview-col-inner">
+      <div id="preview-root"></div>
+      <div id="page-nav"></div>
+    </div>
+  </main>
+
+  <!-- RIGHT: side input panel (sticky ~360px).
+       Every child below is an empty mount point owned by another item. -->
+  <aside class="side-panel" id="side-panel">
+    <header class="side-panel-head">
+      <h1>Badge Sheet Builder</h1>
+      <p class="side-panel-sub">Avery 5392 &middot; 6 per sheet &middot; 4&#8243; &times; 3&#8243;</p>
+    </header>
+
+    <div id="entry-form"></div>
+    <div id="bulk-paste"></div>
+    <div id="csv-import"></div>
+    <div id="attendee-list"></div>
+    <div id="data-controls"></div>
+  </aside>
+
+</div>
+
+<!-- Classic scripts only, loaded in dependency order. Some of these files are owned by
+     other work items and may not exist yet; a 404 on a classic script is non-fatal, the
+     bootstrap in app.js guards every module call. -->
+<script src="fonts/inter-metrics.js"></script>
+<script src="fonts/inter-fontdata.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/pdf-lib-fontkit.min.js"></script>
+<script src="js/spec.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/store.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/input.js"></script>
+<script src="js/preview.js"></script>
+<script src="js/overrides.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>

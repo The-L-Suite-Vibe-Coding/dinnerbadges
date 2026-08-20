@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>preview probe — baseline + width fidelity</title>
+<link rel="stylesheet" href="../fonts/inter-face.css">
+<style>
+  body { margin: 0; font-family: system-ui; }
+  .probe {
+    position: absolute;
+    white-space: pre;
+    font-family: 'Inter';
+    line-height: 1;
+  }
+  #out { position: absolute; top: 600px; left: 0; font: 12px/1.5 monospace; white-space: pre; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="out"></div>
+<script src="../fonts/inter-metrics.js"></script>
+<script>
+/* Probe: where does Chrome actually put the baseline of an absolutely positioned
+   line box, relative to the box top, for a given line-height? And does DOM text
+   measure the same width as InterMetrics.widthOf (i.e. is kerning off)? */
+window.PROBE = function () {
+  var stage = document.getElementById('stage');
+  var M = window.InterMetrics;
+  var rows = [];
+
+  function measure(text, pxSize, weight, style, lineHeight, kernOff) {
+    var d = document.createElement('div');
+    d.className = 'probe';
+    d.style.left = '20px';
+    d.style.top = '40px';
+    d.style.fontSize = pxSize + 'px';
+    d.style.fontWeight = String(weight);
+    d.style.fontStyle = style;
+    d.style.lineHeight = lineHeight;
+    if (kernOff) {
+      d.style.fontKerning = 'none';
+      d.style.fontVariantLigatures = 'none';
+      d.style.letterSpacing = '0';
+      d.style.fontFeatureSettings = '"kern" 0, "liga" 0, "calt" 0';
+    }
+    var t = document.createTextNode(text);
+    d.appendChild(t);
+    var marker = document.createElement('span');
+    marker.style.display = 'inline-block';
+    marker.style.width = '0';
+    marker.style.height = '0';
+    marker.style.verticalAlign = 'baseline';
+    d.appendChild(marker);
+    stage.appendChild(d);
+    var db = d.getBoundingClientRect();
+    var mb = marker.getBoundingClientRect();
+    // text-only width via a Range over the text node (excludes the marker)
+    var r = document.createRange();
+    r.setStart(t, 0);
+    r.setEnd(t, text.length);
+    var tb = r.getBoundingClientRect();
+    var res = {
+      text: text, pxSize: pxSize, weight: weight, style: style, lineHeight: lineHeight,
+      kernOff: !!kernOff,
+      boxTop: db.top, boxHeight: db.height,
+      baselineFromBoxTop: mb.top - db.top,
+      domTextWidth: tb.width,
+      textLeftDelta: tb.left - db.left
+    };
+    stage.removeChild(d);
+    return res;
+  }
+
+  var SCALE = 1.25;
+  var cases = [
+    { t: 'Marguerite', pt: 36, w: 700, s: 'normal' },
+    { t: 'Delacroix', pt: 26, w: 400, s: 'normal' },
+    { t: 'Northwind Analytics', pt: 21, w: 400, s: 'italic' },
+    { t: 'General Counsel', pt: 19, w: 400, s: 'normal' }
+  ];
+  var lhs = ['1', String((M.ascent + M.descent) / M.unitsPerEm), 'normal'];
+
+  cases.forEach(function (c) {
+    lhs.forEach(function (lh) {
+      [false, true].forEach(function (k) {
+        var m = measure(c.t, c.pt * SCALE, c.w, c.s, lh, k);
+        m.pt = c.pt;
+        m.expectedAscentPx = M.ascentPt(c.pt) * SCALE;
+        m.baselineErrPx = m.baselineFromBoxTop - m.expectedAscentPx;
+        m.metricsWidthPx = M.widthOf(c.t, c.pt, c.w, c.s) * SCALE;
+        m.widthErrPx = m.domTextWidth - m.metricsWidthPx;
+        rows.push(m);
+      });
+    });
+  });
+
+  return {
+    fontsReady: document.fonts ? document.fonts.status : 'n/a',
+    interLoaded: document.fonts ? document.fonts.check("700 45px Inter") : 'n/a',
+    metrics: { upem: M.unitsPerEm, ascent: M.ascent, descent: M.descent,
+               ratioAD: (M.ascent + M.descent) / M.unitsPerEm },
+    rows: rows
+  };
+};
+</script>
+</body>
+</html>
