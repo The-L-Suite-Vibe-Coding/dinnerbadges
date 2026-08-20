@@ -327,23 +327,12 @@
 
   /**
    * Read the logo reserve out of `opts` — the ONLY source of this config, so
-   * layout() stays pure. Never mutates `opts`. Sizes are clamped to something
-   * physically meaningful: a reserve can never exceed the cell, nor LOGO_MAX_IN.
+   * layout() stays pure. Never mutates `opts`. The clamping itself belongs to
+   * BadgeSpec.logoPt(), which js/pdf.js calls too, so the engine and the PDF
+   * writer cannot resolve the same reserve differently.
    */
   function readLogo(opts, S) {
-    var wDefault = S.LOGO_DEFAULT.wIn * 72;
-    var hDefault = S.LOGO_DEFAULT.hIn * 72;
-    var off = { enabled: false, wPt: 0, hPt: 0 };
-    if (!opts || !opts.logo || !opts.logo.enabled) return off;
-    var w = Number(opts.logo.wPt);
-    var h = Number(opts.logo.hPt);
-    if (!isFinite(w) || w < 0) w = wDefault;
-    if (!isFinite(h) || h < 0) h = hDefault;
-    var maxPt = S.LOGO_MAX_IN * 72;
-    w = Math.min(w, maxPt, S.CELL_W);
-    h = Math.min(h, maxPt, S.CELL_H);
-    if (w <= 0 || h <= 0) return off; // a zero-area reserve reserves nothing
-    return { enabled: true, wPt: w, hPt: h };
+    return S.logoPt(opts && opts.logo);
   }
 
   /**
@@ -355,11 +344,7 @@
    * default is 'left' it lands there anyway.
    */
   function readAlign(opts, S) {
-    var a = opts && opts.align;
-    for (var i = 0; i < S.ALIGNS.length; i++) {
-      if (a === S.ALIGNS[i]) return a;
-    }
-    return S.ALIGN_DEFAULT;
+    return S.alignKey(opts && opts.align);
   }
 
   /**

@@ -76,7 +76,6 @@
   var PDF_TITLE = 'Name Badges';
 
   var PT_PER_IN = 72;
-  var LOGO_DEFAULT_PT = 72; // 1 in x 1 in, per Addendum 2C
   var DISABLED_LOGO = { enabled: false, wPt: 0, hPt: 0 };
 
   /*
@@ -220,16 +219,16 @@
    * Normalize a points-based logo config into exactly the shape layout() expects.
    * A disabled, zero-sized or non-finite config all collapse to "disabled", so the
    * engine never sees a half-configured reserve.
+   *
+   * Delegates to BadgeSpec.logoPt() — the same call js/layout.js makes — so the
+   * reserve the PDF is laid out against is provably the reserve the preview showed.
+   * This file used to carry its own copy of the clamp, and the two disagreed on
+   * negative sizes.
    */
   function normalizeLogoPt(cfg) {
-    if (!cfg || !cfg.enabled) return DISABLED_LOGO;
     var S = window.BadgeSpec;
-    var maxW = S ? S.CELL_W : 288;
-    var maxH = S ? S.CELL_H : 216;
-    var w = Math.min(Math.max(finiteOr(cfg.wPt, LOGO_DEFAULT_PT), 0), maxW);
-    var h = Math.min(Math.max(finiteOr(cfg.hPt, LOGO_DEFAULT_PT), 0), maxH);
-    if (w <= 0 || h <= 0) return DISABLED_LOGO;
-    return { enabled: true, wPt: w, hPt: h };
+    if (!S || typeof S.logoPt !== 'function') return DISABLED_LOGO;
+    return S.logoPt(cfg);
   }
 
   /**
@@ -282,7 +281,14 @@
   function validPresetKey(key) {
     var S = window.BadgeSpec;
     if (!S) return key;
-    return key && S.SHEET_PRESETS && S.SHEET_PRESETS[key] ? key : S.SHEET_PRESET_DEFAULT;
+    if (typeof S.sheetPresetKey === 'function') return S.sheetPresetKey(key);
+    /* Pre-sheetPresetKey spec.js. hasOwnProperty, not a truthiness test on
+       SHEET_PRESETS[key]: inherited members like 'constructor' would otherwise pass
+       as valid preset names and produce NaN cell origins. */
+    return (typeof key === 'string' && S.SHEET_PRESETS &&
+            Object.prototype.hasOwnProperty.call(S.SHEET_PRESETS, key))
+      ? key
+      : S.SHEET_PRESET_DEFAULT;
   }
 
   function presetFromStore() {
@@ -320,24 +326,36 @@
    * forward it on EVERY layout() call: a missed call site would lay the sheet out
    * against a different alignment than the preview showed.
    */
-  var ALIGN_DEFAULT = 'left';
-  var ALIGNMENTS = { left: 1, center: 1 };
+  /* Fallback ONLY for a build where js/spec.js failed to load. BadgeSpec.ALIGNS /
+     ALIGN_DEFAULT are the authority and are read at call time — this file used to
+     hardcode 'left', which meant changing ALIGN_DEFAULT in spec.js moved the preview
+     but not the exported PDF. */
+  var ALIGN_FALLBACK = ['left', 'center'];
+  var ALIGN_FALLBACK_DEFAULT = 'left';
 
   function validAlign(value) {
-    return value && ALIGNMENTS[value] ? value : ALIGN_DEFAULT;
+    var S = window.BadgeSpec;
+    if (S && typeof S.alignKey === 'function') return S.alignKey(value);
+    var list = (S && S.ALIGNS && S.ALIGNS.length) ? S.ALIGNS : ALIGN_FALLBACK;
+    for (var i = 0; i < list.length; i++) {
+      if (value === list[i]) return value;
+    }
+    return (S && typeof S.ALIGN_DEFAULT === 'string') ? S.ALIGN_DEFAULT : ALIGN_FALLBACK_DEFAULT;
   }
 
   function alignFromStore() {
+    /* validAlign(undefined) resolves to whatever BadgeSpec says the default is, so
+       both exits below follow spec.js rather than a constant in this file. */
     var store = window.BadgeStore;
-    if (!store || typeof store.getAlign !== 'function') return ALIGN_DEFAULT;
+    if (!store || typeof store.getAlign !== 'function') return validAlign();
     try {
       return validAlign(store.getAlign());
     } catch (err) {
       console.warn(
-        'BadgePdf: BadgeStore.getAlign() threw; falling back to ' + ALIGN_DEFAULT + '.',
+        'BadgePdf: BadgeStore.getAlign() threw; falling back to ' + validAlign() + '.',
         err
       );
-      return ALIGN_DEFAULT;
+      return validAlign();
     }
   }
 

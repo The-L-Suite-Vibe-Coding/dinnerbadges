@@ -72,6 +72,7 @@
     // from inside the 14.4 pt inset, because the logo is printed at the stock's
     // real corner: x from (CELL_W - wPt) to CELL_W, y from (CELL_H - hPt) to CELL_H.
     LOGO_DEFAULT: { enabled: true, wIn: 1, hIn: 1 },
+    LOGO_MIN_IN: 0,
     LOGO_MAX_IN: 4,
 
     // ---- horizontal alignment -------------------------------------------
@@ -119,8 +120,37 @@
      * correct sheet, not break the app.
      */
     sheetPreset: function (presetKey) {
-      var p = presetKey && BadgeSpec.SHEET_PRESETS[presetKey];
-      return p || BadgeSpec.SHEET_PRESETS[BadgeSpec.SHEET_PRESET_DEFAULT];
+      return BadgeSpec.SHEET_PRESETS[BadgeSpec.sheetPresetKey(presetKey)];
+    },
+
+    /**
+     * Resolve a preset KEY to a valid key string (rather than to its definition).
+     * Unknown, missing or non-string keys fall back to the default.
+     *
+     * hasOwnProperty, NOT `SHEET_PRESETS[key]`: every object inherits members from
+     * Object.prototype, so a truthiness test accepts 'constructor', 'toString',
+     * 'valueOf' and friends as valid preset names. Those then resolve to a function
+     * with no originX/originY, and cellOrigin() returns NaN coordinates — which
+     * pdf-lib rejects mid-export. Own keys only.
+     */
+    sheetPresetKey: function (presetKey) {
+      if (typeof presetKey === 'string' &&
+          Object.prototype.hasOwnProperty.call(BadgeSpec.SHEET_PRESETS, presetKey)) {
+        return presetKey;
+      }
+      return BadgeSpec.SHEET_PRESET_DEFAULT;
+    },
+
+    /**
+     * Resolve a sheet-wide alignment to a valid value, falling back to
+     * ALIGN_DEFAULT. Exact match against ALIGNS — deliberately not case-normalized,
+     * so 'LEFT' is simply unrecognized and lands on the default.
+     */
+    alignKey: function (align) {
+      for (var i = 0; i < BadgeSpec.ALIGNS.length; i++) {
+        if (align === BadgeSpec.ALIGNS[i]) return align;
+      }
+      return BadgeSpec.ALIGN_DEFAULT;
     },
 
     /**
@@ -145,6 +175,38 @@
         x: preset.originX + (i % COLS) * CELL_W,
         y: preset.originY + Math.floor(i / COLS) * CELL_H
       };
+    },
+
+    /**
+     * Normalize a POINTS-based logo reserve into the exact shape the layout engine
+     * and the PDF writer both consume: { enabled, wPt, hPt }.
+     *
+     * THE single owner of this arithmetic. js/layout.js and js/pdf.js each used to
+     * carry their own copy, and the copies disagreed on negative input (one read it
+     * as "you meant the default", the other as "no reserve at all") — untested in
+     * both, so the preview and the print could have reserved different corners.
+     *
+     * Rules, in order:
+     *   disabled / absent   -> off
+     *   non-finite OR negative -> that dimension falls back to the 1 in default.
+     *       Nonsense input resolves TOWARDS a reserve, not away from one: a missing
+     *       keep-out prints text over pre-printed logo stock and wastes the sheet,
+     *       which is the worse failure.
+     *   oversize            -> clamped to LOGO_MAX_IN and to the cell
+     *   zero                -> off (a zero-area reserve reserves nothing)
+     */
+    logoPt: function (cfg) {
+      var off = { enabled: false, wPt: 0, hPt: 0 };
+      if (!cfg || !cfg.enabled) return off;
+      var maxPt = BadgeSpec.LOGO_MAX_IN * 72;
+      var w = Number(cfg.wPt);
+      var h = Number(cfg.hPt);
+      if (!isFinite(w) || w < 0) w = BadgeSpec.LOGO_DEFAULT.wIn * 72;
+      if (!isFinite(h) || h < 0) h = BadgeSpec.LOGO_DEFAULT.hIn * 72;
+      w = Math.min(w, maxPt, CELL_W);
+      h = Math.min(h, maxPt, CELL_H);
+      if (w <= 0 || h <= 0) return off;
+      return { enabled: true, wPt: w, hPt: h };
     },
 
     /** advance height of one line at `sizePt`, in points. */

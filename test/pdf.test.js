@@ -1543,6 +1543,73 @@ function checkSourceHygiene() {
   assert(typeof BadgePdf.mount === 'function', 'BadgePdf.mount is a function');
   assert(typeof BadgePdf.resolveLogo === 'function', 'BadgePdf.resolveLogo is a function');
 
+  /*
+   * The settings trap, and the reason this block exists in the same shape as the
+   * cell-arithmetic one above. js/pdf.js used to declare `var ALIGN_DEFAULT = 'left'`,
+   * so changing BadgeSpec.ALIGN_DEFAULT moved the on-screen preview and left the
+   * exported PDF where it was — a silent preview/print divergence, which is precisely
+   * what CLAUDE.md's "spec.js holds every constant" rule exists to prevent. A sheet-wide
+   * setting's valid set and default must be READ FROM BadgeSpec, never restated here.
+   * Fallback names are allowed (spec.js may not have loaded) but must be suffixed
+   * _FALLBACK so they cannot be mistaken for the authority.
+   */
+  [
+    [/\bvar\s+ALIGN_DEFAULT\s*=/, 'no hardcoded ALIGN_DEFAULT (read BadgeSpec.ALIGN_DEFAULT)'],
+    [/\bvar\s+ALIGNMENTS\s*=/, 'no private ALIGNMENTS table (read BadgeSpec.ALIGNS)'],
+    [/\bvar\s+LOGO_DEFAULT_PT\s*=/, 'no hardcoded logo default (read BadgeSpec.LOGO_DEFAULT)'],
+    [/\bvar\s+LOGO_MAX_IN\s*=/, 'no hardcoded LOGO_MAX_IN (read BadgeSpec.LOGO_MAX_IN)']
+  ].forEach(function (pair) {
+    assert(!pair[0].test(code), 'js/pdf.js: ' + pair[1]);
+  });
+  assert(/BadgeSpec/.test(code) || /window\.BadgeSpec/.test(src),
+    'js/pdf.js resolves sheet settings through BadgeSpec');
+  assert(/S\.logoPt\s*\(/.test(code),
+    'js/pdf.js normalizes the logo reserve via BadgeSpec.logoPt() (same call js/layout.js makes)');
+
+  /*
+   * Own-property test on preset keys. `SHEET_PRESETS[key]` accepts inherited members —
+   * 'constructor', 'toString', 'valueOf' — as valid preset names, and those resolve to a
+   * value with no originX/originY, so cellOrigin() returns NaN and pdf-lib throws
+   * mid-export. Verified behaviourally rather than by grep.
+   */
+  ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty'].forEach(function (k) {
+    var resolved = BadgePdf.resolveSheetPreset({ sheetPreset: k });
+    assert(
+      Object.prototype.hasOwnProperty.call(S.SHEET_PRESETS, resolved),
+      'resolveSheetPreset(' + JSON.stringify(k) + ') returns a real preset key',
+      'got ' + JSON.stringify(resolved)
+    );
+    var origin = S.cellOrigin(3, resolved);
+    assert(
+      isFinite(origin.x) && isFinite(origin.y),
+      'cellOrigin() stays finite for a ' + JSON.stringify(k) + ' preset key',
+      JSON.stringify(origin)
+    );
+    assert(
+      BadgePdf.resolveAlign({ align: k }) === S.ALIGN_DEFAULT,
+      'resolveAlign(' + JSON.stringify(k) + ') falls back to the spec default'
+    );
+  });
+
+  /*
+   * The engine and the PDF writer must resolve an identical reserve from identical
+   * input. They each used to carry their own clamp and disagreed on negative sizes.
+   */
+  [
+    { enabled: true, wPt: -5, hPt: 72 },
+    { enabled: true, wPt: 72, hPt: -5 },
+    { enabled: true, wPt: NaN, hPt: NaN },
+    { enabled: true, wPt: 0, hPt: 72 },
+    { enabled: true, wPt: 9999, hPt: 9999 },
+    { enabled: true, wPt: Infinity, hPt: 72 }
+  ].forEach(function (cfg) {
+    assert(
+      JSON.stringify(BadgePdf.resolveLogo({ logo: cfg })) === JSON.stringify(S.logoPt(cfg)),
+      'resolveLogo() == BadgeSpec.logoPt() for ' + JSON.stringify(cfg),
+      JSON.stringify(BadgePdf.resolveLogo({ logo: cfg })) + ' vs ' + JSON.stringify(S.logoPt(cfg))
+    );
+  });
+
   // D7: a sourceMappingURL comment makes devtools fetch a .map we do not ship.
   ['pdf-lib.min.js', 'pdf-lib-fontkit.min.js'].forEach(function (name) {
     var v = fs.readFileSync(path.join(SITE, 'vendor', name), 'utf8');

@@ -53,14 +53,38 @@
 
   /* Logo reserve block. ON by default (Julia, 2026-08-20): the stock she prints on has a
      pre-printed logo in each badge's bottom-right corner, so reserving that corner is the
-     normal case. Must stay in step with BadgeSpec.LOGO_DEFAULT — this copy exists only so
-     the store still has a sane default in a build where spec.js failed to load.
+     normal case. BadgeSpec.LOGO_DEFAULT is the authority and is read at call time by
+     logoDefault() below; this copy is only the fallback for a build where spec.js failed
+     to load, so the two can no longer drift.
      INCHES, never points — 1 in is 72 pt, and that conversion belongs to the caller.
      NOTE: a browser that already saved `lsuite.badges.logo` keeps whatever it saved; the
      default only applies to storage that has never been written. */
-  var LOGO_DEFAULT = { enabled: true, wIn: 1, hIn: 1 };
-  var LOGO_MIN_IN = 0;
-  var LOGO_MAX_IN = 4; // a 4 in reserve already eats the whole 4 in cell width
+  var LOGO_FALLBACK = { enabled: true, wIn: 1, hIn: 1 };
+  var LOGO_MIN_IN_FALLBACK = 0;
+  var LOGO_MAX_IN_FALLBACK = 4; // a 4 in reserve already eats the whole 4 in cell width
+
+  /* Read from BadgeSpec at call time, exactly like enumKeys()/enumDefault() do for the
+     alignment and sheet-preset lists. The constants above are the fallback for a build
+     where spec.js has not loaded — they are no longer a second source of truth that has
+     to be kept in step by hand. */
+  function logoDefault() {
+    var S = window.BadgeSpec;
+    var d = S && S.LOGO_DEFAULT;
+    if (isPlainObject(d) && typeof d.wIn === 'number' && typeof d.hIn === 'number') {
+      return { enabled: d.enabled === true, wIn: d.wIn, hIn: d.hIn };
+    }
+    return { enabled: LOGO_FALLBACK.enabled, wIn: LOGO_FALLBACK.wIn, hIn: LOGO_FALLBACK.hIn };
+  }
+  function logoMinIn() {
+    var S = window.BadgeSpec;
+    return (S && typeof S.LOGO_MIN_IN === 'number' && isFinite(S.LOGO_MIN_IN))
+      ? S.LOGO_MIN_IN : LOGO_MIN_IN_FALLBACK;
+  }
+  function logoMaxIn() {
+    var S = window.BadgeSpec;
+    return (S && typeof S.LOGO_MAX_IN === 'number' && isFinite(S.LOGO_MAX_IN))
+      ? S.LOGO_MAX_IN : LOGO_MAX_IN_FALLBACK;
+  }
 
   /* Sheet layout preset. Both presets use the same 288x216 pt cells in a 2x3 grid; only
      the grid ORIGIN differs (0,0 vs 18,72 pt). Default is the sample-derived layout so
@@ -350,8 +374,10 @@
       return fallback;           // object, array, boolean, null, undefined, function
     }
     if (typeof n !== 'number' || !isFinite(n)) return fallback; // NaN, +/-Infinity
-    if (n < LOGO_MIN_IN) return LOGO_MIN_IN;
-    if (n > LOGO_MAX_IN) return LOGO_MAX_IN;
+    var lo = logoMinIn();
+    var hi = logoMaxIn();
+    if (n < lo) return lo;
+    if (n > hi) return hi;
     return n;
   }
 
@@ -363,15 +389,16 @@
     return fallback === true;
   }
 
-  /* Doubles as loader and patcher: `base` is LOGO_DEFAULT when reading storage, and the
+  /* Doubles as loader and patcher: `base` is logoDefault() when reading storage, and the
      CURRENT config when applying a partial patch — so setLogo({enabled:true}) keeps the
      existing wIn/hIn. A garbage blob degrades to `base` without throwing. */
   function normalizeLogo(raw, base) {
-    var b = isPlainObject(base) ? base : LOGO_DEFAULT;
+    var def = logoDefault();
+    var b = isPlainObject(base) ? base : def;
     var out = {
-      enabled: normalizeEnabled(b.enabled, LOGO_DEFAULT.enabled),
-      wIn: normalizeInches(b.wIn, LOGO_DEFAULT.wIn),
-      hIn: normalizeInches(b.hIn, LOGO_DEFAULT.hIn)
+      enabled: normalizeEnabled(b.enabled, def.enabled),
+      wIn: normalizeInches(b.wIn, def.wIn),
+      hIn: normalizeInches(b.hIn, def.hIn)
     };
     if (!isPlainObject(raw)) return out; // '{not json', a number, an array, a deep array
     if (Object.prototype.hasOwnProperty.call(raw, 'enabled')) {
@@ -699,10 +726,10 @@
     try {
       // A missing key is normal (the reserve is off until switched on), so the fallback
       // here is the default config rather than an error.
-      logo = normalizeLogo(readJson(KEY_LOGO, null), LOGO_DEFAULT);
+      logo = normalizeLogo(readJson(KEY_LOGO, null), logoDefault());
     } catch (err) {
       console.warn('[BadgeStore] logo config unreadable — using the default.', err);
-      logo = normalizeLogo(null, LOGO_DEFAULT);
+      logo = normalizeLogo(null, logoDefault());
     }
     try {
       // Overrides whose attendee is gone never come back; drop them at the door and
@@ -1129,7 +1156,7 @@
       attendees = [];
       overrides = Object.create(null);
       pageIndex = 0;
-      logo = normalizeLogo(null, LOGO_DEFAULT); // back to {enabled:true, wIn:1, hIn:1}
+      logo = normalizeLogo(null, logoDefault()); // back to {enabled:true, wIn:1, hIn:1}
       sheetPreset = sheetPresetDefault();
       align = alignDefault(); // back to 'left'
       loaded = true; // state is authoritative now; don't re-read on next access
@@ -1183,7 +1210,7 @@
 
     /* Read-only limits, exposed so the UI that builds the width/height inputs clamps to
        the same range the store enforces instead of hard-coding its own. */
-    LOGO_LIMITS: { minIn: LOGO_MIN_IN, maxIn: LOGO_MAX_IN, defaults: copyLogo(LOGO_DEFAULT) }
+    LOGO_LIMITS: { minIn: logoMinIn(), maxIn: logoMaxIn(), defaults: copyLogo(logoDefault()) }
   };
 
   window.BadgeStore = BadgeStore;
