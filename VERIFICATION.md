@@ -4,7 +4,9 @@ What was tested, the measured numbers, and every place we knowingly deviated fro
 original brief. Written by the orchestrating agent; per-item work was built and then
 adversarially re-tested by separate agents whose job was to break it, not confirm it.
 
-Nothing in this repo has been pushed anywhere. See README for the push steps.
+Branch `review-fixes-08.20.26` has been pushed to `origin` (see section 10). `main` has
+**not** been pushed to or merged into, so the published GitHub Pages site is still the
+pre-review build. See README for the push steps.
 
 ---
 
@@ -899,3 +901,214 @@ cell edge at page x = 0, so the keep-out would sit at 5.94 pt with text at 14.4;
 puts the cell edge at 18 pt, so it could not bind at all). Julia's call on being shown the
 arithmetic: not needed. **Nothing was built**, and the 0.2 in inset remains the only left
 limit.
+
+---
+
+## 10. Code review of 2026-08-20 — six findings, all fixed
+
+An independent review of the finished build, looking for correctness defects, security
+holes and duplication. Six findings; all six addressed on branch
+`review-fixes-08.20.26`. Node checks went **30,284 -> 30,311** across the six suites
+(+27 new guards in `test/pdf.test.js`), all green.
+
+**Security review came back clean** and is recorded here so it does not have to be
+redone: no `fetch` / `XMLHttpRequest` / `WebSocket` / `sendBeacon` anywhere in `js/`,
+no `eval` or `new Function`, no `innerHTML` in any of the three DOM-building modules,
+CSV read only through `FileReader`, PDF metadata deliberately carrying no attendee
+name, and `Object.create(null)` + `hasOwnProperty` guards throughout `store.js`,
+`preview.js` and `overrides.js`. 312 hostile layouts (CJK, RTL, emoji, zero-width
+characters, non-strings, 5,000-character fields, +/-20-step overrides) produced no
+containment violation, no `NaN` and no throw.
+
+**The strongest single check on the whole branch:** the exported PDF was regenerated
+after all of it and every word's bounding box diffed against the pre-change file with
+`pdftotext -bbox`. **Ink positions are identical** — not "looks the same", the same
+coordinates. Nothing below changed what prints.
+
+### 10.1 The alignment default that only lived in `js/pdf.js`
+
+`js/pdf.js` declared its own `var ALIGN_DEFAULT = 'left'` and a private
+`ALIGNMENTS = { left: 1, center: 1 }` table. `CLAUDE.md` states that `js/spec.js` holds
+every constant, so this was a second source of truth for a setting that changes what
+prints. Demonstrated by flipping `BadgeSpec.ALIGN_DEFAULT` to `center` and reloading:
+
+| | reads | before | after |
+|---|---|---|---|
+| `js/layout.js` | `S.ALIGN_DEFAULT` | `center` | `center` |
+| `js/pdf.js` | its own constant | **`left`** | `center` |
+
+The on-screen preview followed the spec and the exported PDF did not — a silent
+preview/print divergence, which is the exact failure the single-fit-engine
+architecture exists to prevent. Not reachable from the UI (the Export button passes no
+`opts`, so it resolves through `BadgeStore`, which reads the spec correctly), but
+reachable from any caller passing a partial `opts`.
+
+### 10.2 Inherited object members accepted as valid preset and alignment keys
+
+Three places validated a key by truthiness on an object lookup —
+`SHEET_PRESETS[key]` — rather than by own-property test. Every JS object inherits from
+`Object.prototype`, so `'constructor'`, `'toString'`, `'valueOf'`, `'__proto__'` and
+`'hasOwnProperty'` all passed as valid names, resolved to a value with no
+`originX`/`originY`, and produced:
+
+```
+BadgeSpec.cellOrigin(3, 'constructor')  ->  { x: NaN, y: NaN }
+resulting pdf-lib draw call             ->  x: NaN, y: NaN   (throws mid-export)
+```
+
+Fixed in `js/spec.js:sheetPresetKey()` (used by `cellOrigin()` and `sheetPreset()`) and
+in `js/pdf.js:validPresetKey()` / `validAlign()`. All five hostile keys now resolve to
+the documented default with finite coordinates. Also not reachable from the UI —
+`BadgeStore`'s `normalizeEnum()` was already correct, using
+`Object.keys(...).indexOf()` — but both `pdf.js` entry points are deliberately exported
+for testing, so they are public surface.
+
+### 10.3 The logo clamp existed twice and the copies disagreed
+
+`js/layout.js:readLogo()` and `js/pdf.js:normalizeLogoPt()` each carried their own
+clamp for the reserve. They agreed on everything the suites covered and **disagreed on
+negative input**, which nothing tested:
+
+| `{ enabled: true, wPt: -5, hPt: 72 }` | resolved to |
+|---|---|
+| `js/layout.js` (the engine) | `{ enabled: true, wPt: 72, hPt: 72 }` — "you meant the 1 in default" |
+| `js/pdf.js` (the writer) | `{ enabled: false, wPt: 0, hPt: 0 }` — "no reserve at all" |
+
+So a negative width would have laid the preview out around a 1 in keep-out and printed
+with none. `BadgeSpec.logoPt()` is now the single owner and both call it. The rule kept
+is the engine's, because it fails in the safer direction: **nonsense input resolves
+towards a reserve, never away from one** — a missing keep-out prints text over
+pre-printed logo stock and wastes the sheet, which is the worse outcome. Every
+previously asserted case is preserved (`0 -> disabled`, `NaN -> 72`,
+`9999 -> clamped to the cell`).
+
+The same consolidation was applied to the logo constants in `js/store.js` and
+`js/overrides.js`, which held hand-maintained copies of `LOGO_DEFAULT`, `LOGO_MIN_IN`
+and `LOGO_MAX_IN`. **This corrects a claim in section 9.1 above:** it said the suites
+assert the three copies agree. They did not — the copies were kept in step by hand, and
+`js/store.js` carried a comment saying exactly that. They are now read from `BadgeSpec`
+at call time, with the local values demoted to `*_FALLBACK` for a build where
+`spec.js` failed to load, matching the pattern `store.js` already used for the
+alignment and preset lists.
+
+### 10.4 `js/overrides.js` was two modules under one name
+
+Its header describes it as "per-badge font-size override UI", and it opens with a list
+of what it deliberately does not do. But roughly 700 of its 1,937 lines were the
+**sheet-wide** settings panel — text alignment, logo reserve, sheet layout — which is
+not per-badge anything. `index.html` already declared `#override-panel` and
+`#sheet-panel` as separate mount points on separate tab pages: the seam was drawn in the
+markup and never carried into the JavaScript.
+
+| file | before | after |
+|---|---|---|
+| `js/overrides.js` | 1,937 | **1,239** |
+| `js/sheet-settings.js` | — | **917** (new, `window.BadgeSheetSettings`) |
+
+The two meet at exactly one point: `BadgeSheetSettings.layoutOpts()` returns the third
+argument for `BadgeLayout.layout()`, and `js/overrides.js` calls it instead of
+resolving the reserve or the alignment for itself. Neither panel can be laid out
+against different sheet settings, which is the property that matters.
+
+The sheet methods stay published on `BadgeOverrides` as thin pass-throughs. That is
+compatibility, not design — the point is that all **628** checks in
+`test/overrides.test.js` (90 of whose assertion lines target that API) keep guarding the
+split, instead of being rewritten by the same pass that made it. New code should call
+`window.BadgeSheetSettings` directly.
+
+Load order now matters and is asserted by the harness: `js/sheet-settings.js` must
+load **before** `js/overrides.js`, which republishes its `LOGO_LIMITS`.
+
+### 10.5 Duplicated element builders, and styling in four places
+
+`js/input.js` and `js/overrides.js` each carried a near-identical `el()` and
+`button()`. Extracted to **`js/dom.js`** (97 lines, `window.BadgeDom`), with `el()`
+defined as the union of the two signatures so no call site changed. The reason to
+extract rather than leave two copies: the never-`innerHTML` rule is an XSS-safety
+property, and it is only as strong as its least careful copy.
+
+Styling went from four homes to two. `js/input.js`'s injected `STYLE_CSS` array and the
+26 static inline `style: {...}` objects across both panel files are now classes in
+`styles.css` (288 -> 403 lines). Two deliberate exceptions, each documented at the
+point it lives:
+
+- **`js/preview.js` keeps its injected block.** Its `.bp-line` rules —
+  `font-kerning: none`, `font-variant-ligatures: none`,
+  `font-feature-settings: "kern" 0, "liga" 0, "calt" 0` — are not presentation. They
+  are what force the browser to advance text by the same plain widths `InterMetrics`
+  measured and `pdf-lib` draws. A rule that correctness depends on must not be able to
+  go missing independently of the code depending on it: in `styles.css` it could be
+  overridden, edited, or simply not loaded by a harness that forgets the `<link>`, and
+  the only symptom would be badges printing differently from what was on screen.
+- **`.ov-warnings` sets no `display`.** `show()` writes `element.style.display`
+  directly; a `display` in the stylesheet would beat the inline `''` that `show()`
+  sets and leave the warnings box permanently hidden. Verified both ways in a live
+  browser: hidden reads `none`/`none`, shown reads `''`/`block`.
+
+One duplicate fell out of this. `js/sheet-settings.js` shipped a hand-copy of the
+panel's field chrome because the shared `.side-panel` rule listed
+`input[type="text"]`, `file`, `textarea` and `select` but **not**
+`input[type="number"]`. Adding number inputs to the shared rule deleted the copy.
+
+### 10.6 The vendored libraries had no provenance record
+
+`vendor/` holds 1,283,499 bytes of third-party minified JS with no recorded version,
+source or fingerprint. Vendoring is correct here — the app must run from `file://` with
+no network — but it left no way to verify a future re-download. Added
+`vendor/PROVENANCE.md` and `vendor/SHA256SUMS`:
+
+| file | bytes | SHA-256 (first 16) |
+|---|---|---|
+| `pdf-lib.min.js` | 525,059 | `278627f3a5e3efa9` |
+| `pdf-lib-fontkit.min.js` | 758,440 | `d8df561b9fba98e2` |
+
+Verify with `shasum -a 256 -c vendor/SHA256SUMS`.
+
+**Versions are recorded as unknown, deliberately not guessed:** neither bundle embeds a
+version string and none was written down when they were vendored. The file gives the
+command to establish it by hashing a candidate release. It also records the one
+non-obvious dependency — `patchCidFontDefaultWidths()` in `js/pdf.js` reaches into
+`pdf-lib`'s internal object model, not its public API, so any upgrade must re-verify
+that patch still applies.
+
+### 10.7 What the browser suite could and could not confirm here — stated plainly
+
+The 86 real-browser checks in `test/preview.browser.html` need a **visible** tab. Every
+tab available to the review environment reports `document.visibilityState === 'hidden'`,
+and Chrome throttles `setTimeout` in hidden tabs to roughly once per second. The suite
+awaits a frame between every measurement (`nextFrame()` races `requestAnimationFrame`
+against a 200 ms timer precisely because a hidden tab never fires rAF), so a run that
+takes 78 ms in a visible window takes many minutes there, and concurrent runs on one
+page interleave and corrupt each other's store state.
+
+What was therefore established, and what was not:
+
+| run | conditions | result |
+|---|---|---|
+| 1 | pre-change `main`, in the harness's own page, a second run concurrently forcing real repaints | **86 / 86 pass** |
+| 2 | pre-change `main`, controlled single-run page, animation callbacks fired synchronously | 77 / 86 |
+| 3 | **this branch**, controlled single-run page, animation callbacks fired synchronously | 77 / 86 |
+| 2 vs 3 | failure sets compared by name | **identical — 0 new, 0 fixed** |
+| — | any run with unmodified frame timing | never completed (throttled) |
+
+**Runs 2 and 3 are the regression test**: one controlled page, one run each, pointed at
+two servers, identical in every respect except which build was served. The failure sets
+match by name exactly, so **this branch introduces no new browser-suite failure.**
+
+Those 9 failures are a measurement artifact of the substitute timing, not a property of
+either build — the pre-change build fails the same 9 under it, and run 1 shows the suite
+reaching 86/86 on that same build once repaints actually land before measurement.
+Firing animation callbacks synchronously is fast and deterministic but not faithful:
+`js/preview.js` coalesces repaints behind the same callback the suite waits on, so
+collapsing both to "immediately" can measure a DOM that is one state behind.
+
+**Not established: a faithful 86/86 on this branch.** It needs one run in a visible
+browser window, which takes under a second:
+
+```
+open site/test/preview.browser.html
+```
+
+That gap is environmental, not evidence of a defect, and the node suites cover the same
+engine equality (`test/preview.test.js` alone compares `renderModel` against
+`BadgeLayout` across 27,992 checks and passes).
