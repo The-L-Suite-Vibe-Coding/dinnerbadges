@@ -256,13 +256,16 @@ that `test/fixtures/deep/deeper.csv`, `nested.xlsx` and `badge.pdf` all stay ign
 
 ## 5. The two added features, verified end to end
 
-Both were requested mid-build and both are **off by default**, so every number in section 4
-is unaffected until they are switched on.
+Both were requested mid-build and both were **off by default at the time this section was
+written**, so every number in section 4 is unaffected until they are switched on. The logo
+reserve default was later flipped to **on** — see section 9.1; the geometry described below
+is unchanged, only which state you get without touching anything.
 
 ### 5.1 Bottom-right logo reserve
 Keeps a rectangle in each badge's bottom-right corner clear, so text cannot print over a
-logo already on the stock. Global setting, per badge geometry, default **off at 1 x 1 in**
-(72 x 72 pt), adjustable 0-4 in, persisted in `localStorage`.
+logo already on the stock. Global setting, per badge geometry, **1 x 1 in** (72 x 72 pt),
+adjustable 0-4 in, persisted in `localStorage`. Default was off when this was built and is
+**on** as of 2026-08-20 (section 9.1).
 
 Reserved region is cell-relative from the raw cell edge: `x` from `288 - wPt` to 288, `y`
 from `216 - hPt` to 216. A line whose vertical box intersects the reserved band gets width
@@ -494,12 +497,16 @@ number in a sandboxed copy of `spec.js` and checks the gap scales by exactly
 `1.1499 x delta`. `layout.js` references the constant in exactly two places and hardcodes no
 number.
 
-**Ceiling on this constant, worth knowing before anyone raises it:** headroom below the
-187.2 pt text box is now 10.1 pt (worst observed block 177.085). Above roughly **12.8 pt**
-the vertical shrink guard goes live and starts paying for the extra spacing by shrinking the
-title — at 24 pt the stress fixture's title drops from 16 to 15 pt. That path is tested, so a
-larger value degrades gracefully rather than overflowing, but past ~12.8 pt the trade is
-spacing against title size.
+**Ceiling on this constant, worth knowing before anyone raises it:** as written, headroom
+below the 187.2 pt text box was 10.1 pt (worst observed block 177.085), and above roughly
+**12.8 pt** the vertical shrink guard went live and started paying for the extra spacing by
+shrinking the title — at 24 pt the stress fixture's title dropped from 16 to 15 pt. That
+path is tested, so a larger value degrades gracefully rather than overflowing.
+
+**Superseded on 2026-08-20 by the third title line (section 9.2):** there is no permanent
+headroom any more. The worst case is 198.93 pt against 187.2, so the shrink guard is a live
+part of normal operation rather than a dormant backstop, and the trade above is now made on
+every badge that fills all three title lines, not only past a 12.8 pt gap.
 
 The separation is `advance(company) + advance(gap) + ascent(title) - ascent(company)` — the
 ascent difference between the 21 pt company and 19 pt title belongs in it because these are
@@ -529,7 +536,7 @@ own UI (no test harness substituting for it). Numbers below are measured from th
 | Logo reserve toggle | screen guides 0 -> **6**; company x 53.93 -> 25.13 and title x 63.69 -> 34.89 (**-28.80 pt each**); name lines unchanged |
 | Sheet preset toggle | `data-sheet-preset="avery"`, cell 0 offset **22.5 px = 18 pt x 1.25 scale**; cell-relative text x values **unchanged**, confirming a pure sheet translation |
 | Persistence across a restart | the 10 attendees entered by three different routes survived a full **browser restart** (not merely a reload) and were read back from `localStorage` |
-| Clear all data | two-step confirm (first click re-labels to "Erase everything — click again to confirm" and changes nothing); after confirming, **all five `lsuite.badges.*` keys removed**, 0 attendees, 0 overrides, logo and preset back to defaults, one empty sheet, "No attendees yet." |
+| Clear all data | two-step confirm (first click re-labels to "Erase everything — click again to confirm" and changes nothing); after confirming, **all five `lsuite.badges.*` keys removed**, 0 attendees, 0 overrides, logo and preset back to defaults (which since 2026-08-20 means the reserve comes back **on**, not off), one empty sheet, "No attendees yet." |
 | Zero outbound network | see below |
 | Laptop layout | see below |
 
@@ -735,3 +742,160 @@ vendored Latin font; the guard that prevents them from overflowing a cell is ret
 sample for comparison and for its Avery label database), poppler (`pdftotext -bbox`,
 `pdffonts`, `pdfinfo`, `pdftoppm`), Python + PIL, and headless Chrome driven over the
 DevTools Protocol. The shipped site needs none of it — only a browser.
+
+---
+
+## 9. Changes of 2026-08-20 — sidebar reorganisation and two default flips
+
+Five changes were asked for. Four landed; one was withdrawn after measurement. Test totals
+went from **29,470** to **30,284** node checks across the six suites plus **86** real-browser
+checks, all green. Every number below was measured after the change, not predicted.
+
+### 9.1 Logo reserve is ON by default
+
+`LOGO_DEFAULT.enabled` false -> **true**, in all three places that hold a copy of it
+(`js/spec.js`, `js/store.js`, `js/overrides.js`; the latter two exist only as fallbacks for
+a build where `spec.js` failed to load, and the suites assert they agree). The stock Julia
+prints on carries a pre-printed logo in each badge's bottom-right corner, so reserving that
+corner is the normal case.
+
+Nothing about the reserve's geometry changed — section 5.1 still describes it exactly. What
+changed is the state you get without touching the control, and the consequences are the ones
+already documented there: lines level with the reserve are laid out in a 201.6 pt span
+instead of 259.2, and under `left` alignment the whole block re-centres in that narrower
+span, which moves **every** line of an affected badge about 0.4 in left. Verified in the
+live app that this is now what happens with no stored setting at all (`lsuite.badges.logo`
+absent from `localStorage`, reserve guides drawn on all six cells).
+
+Two consequences worth stating plainly:
+
+- **A browser that has already saved a logo setting keeps it.** The default only applies to
+  storage that has never been written. If the reserve looks off on a machine that has used
+  the app before, the stored value is why; toggling it, or "Clear all data", picks up the
+  new default. `getLogo()` was checked not to persist the default on read, so a fresh
+  browser still writes no logo key until something actually changes.
+- **`clearAll()` now resets to on, not off.** Asserted directly in `store.test.js` rather
+  than left implicit.
+
+One test bug was exposed by the flip and fixed rather than worked around:
+`test/preview.browser.js` section 11 disabled the reserve, then called `clearAll()`, which
+reset it to the default — so its centred-block expectations were measured against
+reserve-off geometry while the page rendered reserve-on. Failure magnitude was exactly
+**28.7998 pt**, i.e. the 0.4 in narrowing, which is what identified it. The harness now
+re-disables the reserve after the wipe; that section is about alignment, and section 9 of
+the same file owns the reserve. 86/86 in a real browser after the fix.
+
+### 9.2 Title may wrap to three lines
+
+`MAX_LINES.title` 2 -> **3**. In-house legal titles routinely need it ("Executive Vice
+President, General Counsel & Corporate Secretary").
+
+**This makes the vertical shrink guard reachable, and that is the whole story of the
+change.** The tallest possible block goes from `1.1499 x (36 + 26 + 8 + 2x21 + 4 + 2x19)` =
+177.085 pt to `1.1499 x (36 + 26 + 8 + 2x21 + 4 + 3x19)` = **198.93 pt** against a `BOX_H`
+of 187.2. Step 4 of the algorithm — shrink title, then company, last, first, until the block
+fits — previously could not run and was documented in `layout.js` as unreachable. It runs
+now. That comment has been corrected in place; leaving it would have been the most
+misleading line in the file.
+
+Measured on a fixture built to reach it (`Ana Rios` / `Whitfield Cordovan Analytics Group` /
+`Deputy General Counsel and Chief Privacy Officer for the Americas Region`, invented):
+
+| | two-line era | three lines |
+|---|---|---|
+| title size | 13.5 pt x 2 lines | **15.5 pt x 3 lines** |
+| block height | 164.44 pt | **186.86 pt** (0.34 pt inside `BOX_H`) |
+| what set the size | available width | **the vertical pass** — width alone allows 19 pt |
+
+The comparison is not from memory: the test patches only `MAX_LINES` in a sandboxed copy of
+`spec.js` and runs both engines side by side, the same technique section 6 uses for the gap
+constant.
+
+New `layout.test.js` section 22 proves three separate things:
+
+- **(a) the guard fires** — width alone would allow the title at its 19 pt ceiling in three
+  lines; 15.5 pt was used, and 15.5 is the largest half-point step that fits (16 pt
+  overflows), re-derived here from the advance model rather than read off the engine.
+- **(b) it contains** — across **504** combinations (7 long titles x 4 companies x 3 name
+  lengths x 3 reserve geometries x 2 alignments): zero blocks over `BOX_H`, zero fourth
+  lines, zero lines outside the 288 x 216 cell, zero clipping.
+- **(c) it is a net win** — across 9 titles, **no title prints smaller** than it did with two
+  lines and the long ones print larger. Short titles are bit-identical.
+
+Through the exporter (`pdf.test.js`, new section): a two-badge sheet with three-line titles
+and the reserve on — 14 text runs byte-equal to `layout()`, every word of both titles present
+in the PDF text layer, and rasterised at 300 dpi, **zero ink in either reserved corner and
+zero ink below either cell**. The third line is the lowest ink on a badge, so the bottom edge
+is the one that would fail first; it was scanned explicitly.
+
+Three existing expectations moved and were re-pinned with measured values, not loosened:
+the `STRESS` literal line table (title 16 pt x 2 lines -> **16.5 pt x 3**, block 166.1606 ->
+**186.2838**); the worst-case headroom note in section 20, rewritten symbolically off the
+spec so it cannot drift; and one `overrides.test.js` assertion about capped nudges — see
+below, because it is a real behavioural distinction rather than a number.
+
+**A nudge can now be refused silently.** `overrides.test.js` asserted that all three
+cappable fields warn when an upward nudge is denied. With three title lines, the `A3`
+fixture's title is denied for a different reason: it fits at 19 pt by width, but the block
+would then exceed `BOX_H`, so the vertical pass claws it back to 18 pt. That pass is
+deliberately silent — nothing is truncated and nothing is lost — which is exactly the third
+of the three reasons the dead-button probe at the top of `js/overrides.js` exists. The
+button is still correctly disabled, because the probe runs `layout()` and compares the
+applied size rather than assuming a requested nudge was granted. The test now asserts both
+halves: the two clip-capped fields are named in the warnings, and the title is *not*, while
+still not moving.
+
+### 9.3 Side panel reorganised into two tab pages
+
+Order on the **Badges** page, top to bottom, as requested: Export / Clear, Add attendee,
+Import a CSV, Paste a list, Attendees, Font size override. **Sheet settings** — text
+alignment, logo reserve, sheet layout — is now its own page behind a tab.
+
+Done almost entirely in `index.html` and `styles.css`, on purpose:
+
+- `#override-panel` and `#sheet-panel` are now declared in the markup. `js/overrides.js`
+  already reused an existing element with those ids and only created one as a fallback, so
+  it needed **no change at all** to move — the order lives in one readable place instead of
+  in DOM-insertion code.
+- Export before Clear is settled in CSS (`#data-controls` is a flex column, `.pdf-export`
+  order 1, `.clear-all` order 2) rather than by mount order. `js/pdf.js` and `js/store.js`
+  each append into that container and neither may assume it got there first, so ordering by
+  mount order would have been a latent dependency on the bootstrap sequence.
+- The tab strip is ~50 lines in `app.js`, which already owns shell wiring. It only sets
+  `hidden` on containers that already exist and never touches their contents, so a hidden
+  page's controls stay mounted and live (verified: `#sheet-panel` keeps its 15 children and
+  the logo checkbox keeps its state while the Badges tab is showing). If either the tabs or
+  the pages are missing it wires nothing and every page is simply visible, so the test
+  harnesses that build their own DOM are unaffected.
+- ARIA tabs pattern, verified in the live app: roving `tabindex`, `aria-selected` following
+  the active page, and Arrow/Home/End moving between tabs with wraparound. The panel scrolls
+  back to the top on a switch, because the two pages are very different heights.
+
+The `.side-panel > div:not(:empty)` divider rule became `.panel-page > div:not(:empty)` —
+without that the tab strip itself would have been ruled off as if it were a section.
+
+Checked at 1440 x 900 and in the narrow (<1100 px) stacked fallback, and the console is
+clean on load.
+
+### 9.4 "Avery 5392" removed from the header
+
+The sub-line now reads `6 per sheet · 4″ × 3″`. The stock reference came off because it
+names a template Julia does not necessarily run — the same inference that produced the
+sheet-preset error recorded in section 3. The dimensions stay because they are true of the
+paper regardless of who made it. `Avery 5392` no longer appears anywhere in the rendered
+page; the researched Avery geometry is still in `spec.js` and still offered as the `avery`
+sheet preset, which is unchanged.
+
+### 9.5 Print-safe left border — asked for, then withdrawn
+
+A hidden keep-out at 0.0825 in from the left of the sheet was requested, "a print-safe
+border, but not a true margin like the perforations".
+
+Measured before building it: 0.0825 in is **5.94 pt**, and text already stops at the 14.4 pt
+(0.2 in) inset on all four sides — the inset that section 6.1 records as existing precisely
+to be a printer safety margin. A 5.94 pt keep-out is therefore inside a limit already
+enforced and could never bind, under either sheet preset (`sampleTopLeft` puts column 0's
+cell edge at page x = 0, so the keep-out would sit at 5.94 pt with text at 14.4; `avery`
+puts the cell edge at 18 pt, so it could not bind at all). Julia's call on being shown the
+arithmetic: not needed. **Nothing was built**, and the 0.2 in inset remains the only left
+limit.

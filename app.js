@@ -1,9 +1,12 @@
 /* app.js — wiring only.
  *
- * Owns two things and nothing else:
+ * Owns three things and nothing else:
  *   1. window.BadgeBus  — the tiny pub/sub every module talks over.
  *   2. the DOMContentLoaded bootstrap that mounts the other modules, each guarded so a
  *      module that has not landed yet logs a warning instead of throwing.
+ *   3. the side panel's two tabs ("Badges" / "Sheet settings"). Shell chrome, not a
+ *      feature: it only shows and hides containers that already exist in index.html
+ *      and never touches their contents, so no module needs to know it is there.
  *
  * No layout math, no DOM building, no network. Classic script, no modules.
  */
@@ -90,8 +93,80 @@
     }
   }
 
+  /* ------------------------------------------------------------ panel tabs */
+
+  /* [tab id, page id] — both must already exist in index.html. */
+  var TABS = [
+    ['tab-badges', 'page-badges'],
+    ['tab-sheet', 'page-sheet']
+  ];
+
+  /**
+   * Wire the side panel's tab strip. Deliberately tolerant: if either the tabs or
+   * the pages are absent (a test harness, an older index.html), this does nothing
+   * and the panel behaves exactly as it did before tabs existed — every page is
+   * simply visible. It never creates, moves or empties a node, so a module that
+   * mounts into #sheet-panel is unaffected by which tab is showing.
+   */
+  function initTabs() {
+    var pairs = [];
+    for (var i = 0; i < TABS.length; i++) {
+      var tab = document.getElementById(TABS[i][0]);
+      var page = document.getElementById(TABS[i][1]);
+      if (!tab || !page) return; // all or nothing — a half-wired tab strip is worse
+      pairs.push({ tab: tab, page: page });
+    }
+
+    var panel = document.getElementById('side-panel');
+
+    function show(index, moveFocus) {
+      for (var k = 0; k < pairs.length; k++) {
+        var on = k === index;
+        pairs[k].tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        // Roving tabindex: only the selected tab is in the tab order (ARIA tabs pattern).
+        pairs[k].tab.tabIndex = on ? 0 : -1;
+        pairs[k].page.hidden = !on;
+      }
+      if (moveFocus) pairs[index].tab.focus();
+      // The two pages are very different heights; leaving the panel scrolled to where
+      // the other page ended looks like a rendering fault.
+      if (panel) panel.scrollTop = 0;
+    }
+
+    for (var j = 0; j < pairs.length; j++) {
+      (function (index) {
+        pairs[index].tab.addEventListener('click', function () { show(index, false); });
+        pairs[index].tab.addEventListener('keydown', function (ev) {
+          var key = ev && ev.key;
+          var next = null;
+          if (key === 'ArrowRight' || key === 'ArrowDown') next = (index + 1) % pairs.length;
+          else if (key === 'ArrowLeft' || key === 'ArrowUp') next = (index - 1 + pairs.length) % pairs.length;
+          else if (key === 'Home') next = 0;
+          else if (key === 'End') next = pairs.length - 1;
+          if (next === null) return;
+          ev.preventDefault();
+          show(next, true);
+        });
+      })(j);
+    }
+
+    // Start from whatever index.html marked selected, so the markup stays the
+    // single source of truth for the initial page.
+    var start = 0;
+    for (var m = 0; m < pairs.length; m++) {
+      if (pairs[m].tab.getAttribute('aria-selected') === 'true') { start = m; break; }
+    }
+    show(start, false);
+  }
+
   function boot() {
     for (var i = 0; i < MOUNTS.length; i++) mountOne(MOUNTS[i]);
+    try {
+      initTabs();
+    } catch (err) {
+      // A broken tab strip must not take the mounted app down with it.
+      console.error('[app] initTabs() threw:', err);
+    }
   }
 
   if (document.readyState === 'loading') {

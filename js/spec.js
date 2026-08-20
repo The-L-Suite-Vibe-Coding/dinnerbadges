@@ -52,16 +52,26 @@
     // italic face). Weight stays 400 — only the style changes.
     STYLES: { first: 'normal', last: 'normal', company: 'italic', title: 'normal' },
     STEP: 0.5, // shrink step, pt
-    MAX_LINES: { company: 2, title: 2 }, // first/last never wrap
+    // Company wraps to at most 2 lines; TITLE to at most 3. The third title line is
+    // deliberate (Julia, 2026-08-20): in-house legal titles routinely run to three
+    // lines ("Executive Vice President, General Counsel & Corporate Secretary").
+    // CONSEQUENCE, stated plainly: the tallest possible block becomes
+    // 1.1499 * (36 + 26 + 8 + 2*21 + 4 + 3*19) = 198.93 pt against a BOX_H of
+    // 187.2, so the vertical shrink guard in layout.js is now REACHABLE in normal
+    // use and will shrink the title (then company, last, first) to pay for the
+    // extra line. That is the intended behaviour, not an overflow.
+    MAX_LINES: { company: 2, title: 3 }, // first/last never wrap
 
     // ---- bottom-right logo reserve (pre-printed stock) -------------------
-    // One global setting for every badge; OFF by default so existing geometry is
-    // unaffected until it is switched on. Sizes are kept in INCHES here (and in
+    // One global setting for every badge; ON by default (Julia, 2026-08-20) because
+    // the stock she prints on carries a pre-printed logo in every badge's
+    // bottom-right corner, so reserving that corner is the normal case, not the
+    // exception. Turning it OFF restores the pre-feature geometry exactly. Sizes are kept in INCHES here (and in
     // BadgeStore); converting to points is the caller's job — BadgeLayout takes
     // wPt/hPt. The reserved rectangle is measured from the RAW cell edge, not
     // from inside the 14.4 pt inset, because the logo is printed at the stock's
     // real corner: x from (CELL_W - wPt) to CELL_W, y from (CELL_H - hPt) to CELL_H.
-    LOGO_DEFAULT: { enabled: false, wIn: 1, hIn: 1 },
+    LOGO_DEFAULT: { enabled: true, wIn: 1, hIn: 1 },
     LOGO_MAX_IN: 4,
 
     // ---- horizontal alignment -------------------------------------------

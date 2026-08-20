@@ -51,10 +51,14 @@
   var FIELDS = ['first', 'last', 'title', 'company'];
   var NUDGE_FIELDS = ['first', 'last', 'company', 'title'];
 
-  /* Logo reserve block. OFF by default on purpose: switching it on changes badge geometry,
-     so existing sheets and the acceptance tests are unaffected until Julia enables it.
-     INCHES, never points — 1 in is 72 pt, and that conversion belongs to the caller. */
-  var LOGO_DEFAULT = { enabled: false, wIn: 1, hIn: 1 };
+  /* Logo reserve block. ON by default (Julia, 2026-08-20): the stock she prints on has a
+     pre-printed logo in each badge's bottom-right corner, so reserving that corner is the
+     normal case. Must stay in step with BadgeSpec.LOGO_DEFAULT — this copy exists only so
+     the store still has a sane default in a build where spec.js failed to load.
+     INCHES, never points — 1 in is 72 pt, and that conversion belongs to the caller.
+     NOTE: a browser that already saved `lsuite.badges.logo` keeps whatever it saved; the
+     default only applies to storage that has never been written. */
+  var LOGO_DEFAULT = { enabled: true, wIn: 1, hIn: 1 };
   var LOGO_MIN_IN = 0;
   var LOGO_MAX_IN = 4; // a 4 in reserve already eats the whole 4 in cell width
 
@@ -88,7 +92,7 @@
      Every read below is additionally hasOwn-guarded. */
   var overrides = Object.create(null); // id -> nudge object (only for ids that exist)
   var pageIndex = 0;
-  var logo = { enabled: false, wIn: 1, hIn: 1 };
+  var logo = { enabled: true, wIn: 1, hIn: 1 };
   var sheetPreset = SHEET_DEFAULT_FALLBACK;
   var align = ALIGN_DEFAULT_FALLBACK;
   var loaded = false;           // has load() run (set in a finally — see load())
@@ -1125,7 +1129,7 @@
       attendees = [];
       overrides = Object.create(null);
       pageIndex = 0;
-      logo = normalizeLogo(null, LOGO_DEFAULT); // back to {enabled:false, wIn:1, hIn:1}
+      logo = normalizeLogo(null, LOGO_DEFAULT); // back to {enabled:true, wIn:1, hIn:1}
       sheetPreset = sheetPresetDefault();
       align = alignDefault(); // back to 'left'
       loaded = true; // state is authoritative now; don't re-read on next access

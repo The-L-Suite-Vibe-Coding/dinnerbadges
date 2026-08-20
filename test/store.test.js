@@ -893,20 +893,26 @@ delete globalThis.document;
 section('18. logo reserve config: getLogo / setLogo');
 
 var LOGO_KEY = 'lsuite.badges.logo';
-var LOGO_DEFAULTS = { enabled: false, wIn: 1, hIn: 1 };
+/* ON by default since 2026-08-20 (Julia's stock is pre-printed with a corner logo).
+   The "writes nothing until something changes it" property below is unaffected: the
+   default lives in code, not in storage, so a fresh browser still has no logo key. */
+var LOGO_DEFAULTS = { enabled: true, wIn: 1, hIn: 1 };
 
 /* --- (a) defaults when the key is absent --------------------------------------- */
 shim = makeShim();
 globalThis.localStorage = shim;
 var LA = freshStore();
 LA.init();
-deepEq(LA.getLogo(), LOGO_DEFAULTS, 'defaults to {enabled:false, wIn:1, hIn:1} with no stored key');
+deepEq(LA.getLogo(), LOGO_DEFAULTS, 'defaults to {enabled:true, wIn:1, hIn:1} with no stored key');
 eq(typeof LA.getLogo().enabled, 'boolean', 'enabled is a real boolean, not truthy');
 eq(shim.getItem(LOGO_KEY), null, 'no logo key is written until something changes it');
-deepEq(prefixedKeys(shim), [], 'a default-off reserve writes nothing at all');
+deepEq(prefixedKeys(shim), [], 'the default reserve writes nothing at all — the default is code, not storage');
 // the reserve being off must not disturb anything else
 LA.setAttendees([{ id: 'lg0', first: 'Perpetua', last: 'Kalinowski', title: 'GC', company: 'Windrose Cement' }]);
 deepEq(prefixedKeys(shim), ['lsuite.badges.attendees'], 'still no logo key after unrelated writes');
+/* The flip of the default must not have quietly become a write-on-read. */
+LA.getLogo();
+deepEq(prefixedKeys(shim), ['lsuite.badges.attendees'], 'reading the default never persists it');
 
 /* --- (b) round-trip through a simulated reload --------------------------------- */
 LA.setLogo({ enabled: true, wIn: 1.5, hIn: 0.75 });
@@ -1015,7 +1021,7 @@ CORRUPT.forEach(function (pair) {
     return;
   }
   var got = LC.getLogo();
-  var isDefault = got.enabled === false && got.wIn === 1 && got.hIn === 1;
+  var isDefault = got.enabled === LOGO_DEFAULTS.enabled && got.wIn === 1 && got.hIn === 1;
   var isClamped = got.enabled === true && got.wIn === 0 && got.hIn === 4; // the last case
   ok((isDefault || isClamped) && typeof got.enabled === 'boolean',
     'logo key holding ' + why + ' -> safe config ' + JSON.stringify(got));
@@ -1093,12 +1099,16 @@ globalThis.BadgeBus = {
 var LF = freshStore();
 LF.init();
 busLog = [];
+/* enabled:true is now the DEFAULT, so toggling it on is not a change and must not
+   emit. Toggling it OFF is the real change on a fresh store. */
 LF.setLogo({ enabled: true });
+eq(busLog.length, 0, 'setting the reserve to the value it already has emits nothing');
+LF.setLogo({ enabled: false });
 eq(busLog.length, 1, 'one bus event for one real change');
 eq(busLog[0].evt, 'logo:changed', 'the event name is logo:changed');
-deepEq(busLog[0].payload, { logo: { enabled: true, wIn: 1, hIn: 1 } },
+deepEq(busLog[0].payload, { logo: { enabled: false, wIn: 1, hIn: 1 } },
   'the payload carries the full resulting config');
-LF.setLogo({ enabled: true }); // identical
+LF.setLogo({ enabled: false }); // identical
 eq(busLog.length, 1, 'no bus event when nothing changed');
 LF.setLogo({ wIn: 2 });
 eq(busLog.length, 2, 'a size change emits again');
@@ -1106,9 +1116,9 @@ eq(busLog.length, 2, 'a size change emits again');
 busLog[1].payload.logo.wIn = 999;
 eq(LF.getLogo().wIn, 2, 'the emitted payload is a copy, not live state');
 var got1 = LF.getLogo();
-got1.enabled = false;
-got1.wIn = 42;
-deepEq(LF.getLogo(), { enabled: true, wIn: 2, hIn: 1 }, 'getLogo() returns a copy too');
+got1.enabled = true;   // deliberately the OPPOSITE of the stored value, so the
+got1.wIn = 42;         // assertion below fails if the copy is not a copy
+deepEq(LF.getLogo(), { enabled: false, wIn: 2, hIn: 1 }, 'getLogo() returns a copy too');
 
 /* --- (l) clearAll() sweeps lsuite.badges.logo -------------------------------- */
 LF.setAttendees([{ id: 'lg2', first: 'Evanthia', last: 'Roskilly', title: 'DGC', company: 'Pemberton Glass' }]);
@@ -1612,7 +1622,7 @@ eq(shim.getItem('lsuite.badges.sheetPreset'), null, 'the sheetPreset key specifi
 eq(shim.getItem('lsuite.badges.logo'), null, 'the logo key specifically is gone');
 eq(AL.getAlign(), 'left', 'in-memory alignment reset to left');
 eq(AL.getSheetPreset(), 'sampleTopLeft', 'sheet preset reset too');
-eq(AL.getLogo().enabled, false, 'logo reserve reset too');
+eq(AL.getLogo().enabled, true, 'logo reserve reset too — back to the ON default, not to off');
 eq(alignBus.filter(function (e) { return e.evt === 'align:changed'; }).length, 1,
   'clearAll() emits align:changed');
 var AM = freshStore();

@@ -1864,6 +1864,95 @@ function checkPresetTranslation(sampleRes, averyRes) {
 }
 
 // =========================================================================
+// three-line title (MAX_LINES.title 2 -> 3, 2026-08-20)
+// =========================================================================
+
+/**
+ * The third title line is a change to the ENGINE, but it is the exporter that has
+ * to survive it: one more run per badge, drawn lower in the cell, with the logo
+ * reserve ON (the default since the same day) narrowing the lines that sit level
+ * with it. Verified all the way through to raster ink, not just to the draw list —
+ * a title line that overflowed the cell or intruded on the reserve would be
+ * invisible in the layout numbers the exporter was handed.
+ *
+ * Fixture names are invented, as everywhere else in this suite.
+ */
+function checkThreeLineTitle(caps) {
+  var attendees = [
+    { id: 'tl1', first: 'Ana', last: 'Rios',
+      company: 'Whitfield Cordovan Analytics Group',
+      title: 'Deputy General Counsel and Chief Privacy Officer for the Americas Region' },
+    { id: 'tl2', first: 'Bartholomew', last: 'Vandergriff-Castellanos',
+      company: 'Bristol-Myers Squibb Holdings International',
+      title: 'Executive Vice President, General Counsel & Corporate Secretary' }
+  ];
+  var preset = S.SHEET_PRESET_DEFAULT;
+  var ORIGINS = originsFor(preset);
+
+  return build(attendees, 'three-line-title.pdf', { logo: LOGO_1IN, align: 'left' }).then(function (res) {
+    head('three-line title — the engine really produced three lines');
+    assert(S.MAX_LINES.title === 3, 'BadgeSpec.MAX_LINES.title is 3', String(S.MAX_LINES.title));
+
+    var perBadge = res.layouts.map(function (c) {
+      return c.result.lines.filter(function (l) { return l.field === 'title' && l.text; }).length;
+    });
+    assert(perBadge[0] === 3, 'badge 1 title occupies three lines', 'lines = ' + perBadge[0]);
+    assert(perBadge[1] === 3, 'badge 2 title occupies three lines', 'lines = ' + perBadge[1]);
+    assert(
+      res.layouts.every(function (c) { return c.result.fits && !c.result.warnings.length; }),
+      'neither badge was clipped or warned about',
+      JSON.stringify(res.layouts.map(function (c) { return c.result.warnings.length; }))
+    );
+
+    checkLogoThreading(res, { enabled: true, wPt: 72, hPt: 72 }, 'three-line title, reserve ON', 'left');
+    checkDrawMatchesLayout(res, 'three-line title / reserve ON / left', preset);
+
+    head('three-line title — every word survives into the PDF text layer');
+    var pageWords = extract(res.file)[0].words.map(function (w) { return w.text; }).join(' ');
+    var missingWords = [];
+    attendees.forEach(function (a) {
+      a.title.split(' ').forEach(function (w) {
+        // pdftotext splits on its own word boundaries; compare on the alphanumeric core.
+        var core = w.replace(/[^A-Za-z0-9]/g, '');
+        if (core && pageWords.replace(/[^A-Za-z0-9 ]/g, '').indexOf(core) === -1) missingWords.push(w);
+      });
+    });
+    assert(missingWords.length === 0,
+      'no word of either three-line title was lost to wrapping or clipping',
+      missingWords.length ? 'missing: ' + missingWords.join(', ') : 'all words present');
+
+    head('three-line title — RASTER: ink stays in the cell and out of the reserve');
+    var R = raster(res.file, 1);
+    var inReserve = 0;
+    var outsideCell = 0;
+    [0, 1].forEach(function (i) {
+      var o = ORIGINS[i];
+      var rx0 = o[0] + S.CELL_W - 72;
+      var ry0 = o[1] + S.CELL_H - 72;
+      var hit = R.scan(rx0, ry0, o[0] + S.CELL_W, o[1] + S.CELL_H);
+      if (hit.count) inReserve++;
+      if (caps.logo) {
+        assert(hit.count === 0, 'cell ' + (i + 1) + ': the reserved corner is empty even with a third title line',
+          hit.count ? hit.count + ' ink px inside' : 'clear');
+      } else {
+        blocked('cell ' + (i + 1) + ': reserve empty — js/layout.js has not shipped Addendum 2C');
+      }
+      /* The third line is the LOWEST ink on the badge, so the bottom edge is the
+         one that would give way first. Scanned one point past the cell on every
+         side: any ink there belongs to a neighbour, or to nobody. */
+      var below = R.scan(o[0], o[1] + S.CELL_H, o[0] + S.CELL_W, o[1] + S.CELL_H + 1);
+      var right = R.scan(o[0] + S.CELL_W, o[1], o[0] + S.CELL_W + 1, o[1] + S.CELL_H);
+      if (below.count || right.count) outsideCell++;
+      assert(below.count === 0, 'cell ' + (i + 1) + ': no ink below the cell — the third line did not overflow',
+        below.count ? below.count + ' px' : 'clear');
+    });
+    console.log('  ' + inReserve + ' reserve violation(s), ' + outsideCell + ' cell-overflow(s) across 2 badges');
+
+    return checkTextOnly(res.file, 'three-line title');
+  });
+}
+
+// =========================================================================
 // run
 // =========================================================================
 
@@ -1943,6 +2032,7 @@ build(fixture('six.json'), 'six.pdf', { logo: { enabled: false }, sheetPreset: '
     return checkNotdefGeometry();
   })
   .then(function () { return checkLogoReserve(caps); })
+  .then(function () { return checkThreeLineTitle(caps); })
   .then(function () { return checkInvariantMatrix(caps); })
   .then(function () {
     checkResolveLogo();

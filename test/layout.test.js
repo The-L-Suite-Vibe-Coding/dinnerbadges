@@ -493,23 +493,30 @@ section('4. stress fixture — LITERAL real-Inter coordinates, wrap-before-shrin
 // ===========================================================================
 var stress = L.layout(STRESS, null, CENTERED);
 dump('STRESS (real metrics)', stress);
+/* MAX_LINES.title went 2 -> 3 on 2026-08-20, and this fixture is exactly the case it
+   was changed for: "Executive Vice President, General Counsel & Corporate Secretary"
+   now takes three lines at 16.5 pt instead of two at 16 pt — a bigger typeface, which
+   was the point. Block height goes 166.1606 -> 186.2838 pt, leaving 0.9162 pt inside
+   BOX_H, so the vertical shrink guard still does not fire on this fixture (section 20
+   exercises the case where it does). */
 assertLiteralLines(
   stress,
   [
-    ['first', 36, 'normal', 27.1055, 233.7891, 21.1638, 56.0388, 'Bartholomew'],
-    ['last', 22.5, 'normal', 16.4213, 255.1575, 62.5602, 84.3571, 'Vandergriff-Castellanos'],
-    ['gap', 8, 'normal', 144, 0, 88.433, 96.183, ''],
-    ['company', 21, 'italic', 39.2871, 209.4258, 97.6322, 117.9759, 'Bristol-Myers Squibb'],
-    ['company', 21, 'italic', 34.6113, 218.7773, 121.7801, 142.1238, 'Holdings International'],
-    ['gap', 4, 'normal', 144, 0, 145.928, 149.803, ''],
-    ['title', 16, 'normal', 16.082, 255.8359, 150.5276, 166.0276, 'Executive Vice President, General'],
-    ['title', 16, 'normal', 26.3828, 235.2344, 168.926, 184.426, 'Counsel & Corporate Secretary']
+    ['first', 36, 'normal', 27.1055, 233.7891, 11.1205, 45.9955, 'Bartholomew'],
+    ['last', 22.5, 'normal', 16.4213, 255.1575, 52.5169, 74.3138, 'Vandergriff-Castellanos'],
+    ['gap', 8, 'normal', 144, 0, 78.3897, 86.1397, ''],
+    ['company', 21, 'italic', 39.2871, 209.4258, 87.5889, 107.9326, 'Bristol-Myers Squibb'],
+    ['company', 21, 'italic', 34.6113, 218.7773, 111.7368, 132.0805, 'Holdings International'],
+    ['gap', 4, 'normal', 144, 0, 135.8847, 139.7597, ''],
+    ['title', 16.5, 'normal', 44.7905, 198.4189, 140.4843, 156.4687, 'Executive Vice President,'],
+    ['title', 16.5, 'normal', 30.1274, 227.7451, 159.4576, 175.442, 'General Counsel & Corporate'],
+    ['title', 16.5, 'normal', 106.1942, 75.6116, 178.431, 194.4154, 'Secretary']
   ],
   'stress lines match their literal expected real-Inter positions'
 );
-near(stress.blockHeight, 166.1606, 0.001, 'stress blockHeight = 166.1606 pt (literal)');
+near(stress.blockHeight, 186.2838, 0.001, 'stress blockHeight = 186.2838 pt (literal)');
 assertHorizontalPlacement(stress, 'widths and x re-derived per character agree (stress, centered)', 0, 'center');
-assertVerticalIndependently(stress, [[36, 1], [22.5, 1], [8, 0], [21, 1], [21, 1], [4, 0], [16, 1], [16, 1]], 'vertical model (incl. optical shift) re-derived independently agrees (stress)');
+assertVerticalIndependently(stress, [[36, 1], [22.5, 1], [8, 0], [21, 1], [21, 1], [4, 0], [16.5, 1], [16.5, 1], [16.5, 1]], 'vertical model (incl. optical shift) re-derived independently agrees (stress)');
 assertOpticalBoxCentered(stress, 'the optical ink box is centered in the cell (stress)');
 assertInsideCell(stress, 'nothing outside the 288x216 cell (stress)');
 assertSizeBounds(stress, 'stress sizes within 36/26/21/19 and 22/16/13/12');
@@ -520,8 +527,13 @@ ok(
   'company WRAPPED before shrinking (2 lines still at the 21 pt ceiling)'
 );
 ok(
-  stress.lines.filter(function (l) { return l.field === 'title'; }).length === 2 && stress.appliedSizes.title === 16,
-  'title needed a wrap AND a shrink (2 lines at 16 pt)'
+  stress.lines.filter(function (l) { return l.field === 'title'; }).length === 3 && stress.appliedSizes.title === 16.5,
+  'title used all THREE lines and still needed a shrink (3 lines at 16.5 pt)'
+);
+ok(
+  stress.blockHeight <= 187.2 + 1e-9 && stress.blockHeight > 177.085,
+  'the third title line pushes this fixture past the OLD two-line worst case (177.085) but still inside BOX_H',
+  r4(stress.blockHeight)
 );
 ok(
   Math.max.apply(null, stress.lines.map(function (l) { return l.lineWidth; })) <= 259.2 + 1e-9,
@@ -823,7 +835,7 @@ var LOGO_1IN = { logo: { enabled: true, wPt: 72, hPt: 72 } }; // default align (
 var LOGO_1IN_CENTER = { logo: { enabled: true, wPt: 72, hPt: 72 }, align: 'center' };
 var NARROW_CENTER = (14.4 + (288 - 72)) / 2; // 115.2
 var NARROW_W = 288 - 72 - 14.4; // 201.6
-ok(S.LOGO_DEFAULT.enabled === false && S.LOGO_DEFAULT.wIn === 1 && S.LOGO_DEFAULT.hIn === 1, 'BadgeSpec.LOGO_DEFAULT is 1x1 in, OFF');
+ok(S.LOGO_DEFAULT.enabled === true && S.LOGO_DEFAULT.wIn === 1 && S.LOGO_DEFAULT.hIn === 1, 'BadgeSpec.LOGO_DEFAULT is 1x1 in, ON (default flipped 2026-08-20 — her stock is pre-printed)');
 ok(S.LOGO_MAX_IN === 4, 'BadgeSpec.LOGO_MAX_IN is 4');
 
 /** The hard invariant: no glyph may land in the reserved rectangle. */
@@ -1473,7 +1485,27 @@ ok(
   stress.appliedSizes.title + ' -> ' + pS.appliedSizes.title
 );
 console.log('  at GAP_TITLE_SIZE=24 the stress title shrinks ' + stress.appliedSizes.title + ' -> ' + pS.appliedSizes.title + ' pt and the block still fits (' + r4(pS.blockHeight) + ' <= 187.2)');
-ok(S.GAP_TITLE_SIZE + (187.2 - ADVANCE_FACTOR_LITERAL * 154) / ADVANCE_FACTOR_LITERAL > 12, 'headroom note: the worst case stays inside BOX_H up to ~12.8 pt without any shrinking');
+/* Worst-case height bookkeeping, restated after MAX_LINES.title went 2 -> 3.
+   Sum of sizes in the tallest possible block = first 36 + last 26 + gap 8 +
+   2 company lines (2*21) + GAP_TITLE_SIZE + 3 title lines (3*19) = 173 at the
+   current gap. Times 1.1499 that is 198.93 pt against BOX_H 187.2 — so unlike
+   the two-line era there is NO permanent headroom any more and the vertical
+   shrink guard is a live part of normal operation, not a dormant backstop.
+   Asserted symbolically off the spec so it cannot drift. */
+var WORST_SUM = 36 + 26 + 8 + 2 * 21 + S.GAP_TITLE_SIZE + 3 * 19;
+ok(WORST_SUM === 173, 'worst-case size sum is 173 pt at GAP_TITLE_SIZE ' + S.GAP_TITLE_SIZE, String(WORST_SUM));
+ok(
+  ADVANCE_FACTOR_LITERAL * WORST_SUM > 187.2,
+  'headroom note: with three title lines the worst case NO LONGER fits BOX_H unaided (198.93 > 187.2), so the vertical shrink guard is reachable',
+  r4(ADVANCE_FACTOR_LITERAL * WORST_SUM)
+);
+/* And the two-line worst case, which is what the old note measured, still fits —
+   the change of behaviour is entirely attributable to the third line. */
+ok(
+  ADVANCE_FACTOR_LITERAL * (WORST_SUM - 19) <= 187.2,
+  'the same block with only two title lines (154 pt of type) still fits unaided',
+  r4(ADVANCE_FACTOR_LITERAL * (WORST_SUM - 19))
+);
 
 // ===========================================================================
 section('21. RESERVE KEEP-OUT USES INK, NOT THE ADVANCE BOX (regression)');
@@ -1595,6 +1627,166 @@ var strictChecked = 0;
   });
 });
 ok(strictInvBad === 0, 'sizes, wraps and narrowed flags still identical between left and center across ' + strictChecked + ' combinations');
+
+// ===========================================================================
+section('22. THIRD TITLE LINE — the vertical shrink guard is now LIVE');
+// ===========================================================================
+/* MAX_LINES.title went 2 -> 3 on 2026-08-20. Before that change the tallest
+   possible block was 177.085 pt against BOX_H 187.2 and step 4 of the algorithm
+   (shrink title, then company, last, first, until the block fits) could never run.
+   It runs now. This section proves three separate things about that:
+     (a) the guard actually fires — the title is smaller than width alone requires;
+     (b) it still contains the block, every time, across a sweep;
+     (c) the third line is a NET WIN — long titles print LARGER than they did with
+         two lines, which is the whole reason for the change. */
+
+/* Width-only feasibility, re-derived here rather than asked of the engine: the
+   greedy wrap from BADGE_SPEC.md, run against the real metrics. If this says a
+   size fits in N lines and the engine used something smaller, the difference can
+   only have come from the vertical pass. */
+function widestWrapSize(text, maxLines, maxW, weight, style) {
+  var words = String(text).split(' ');
+  for (var size = S.SIZES.title; size >= S.FLOORS.title; size -= S.STEP) {
+    var lines = [];
+    var i = 0;
+    var ok2 = true;
+    while (i < words.length) {
+      if (lines.length >= maxLines) { ok2 = false; break; }
+      var cur = words[i];
+      if (window.InterMetrics.widthOf(cur, size, weight, style) > maxW) { ok2 = false; break; }
+      i++;
+      while (i < words.length && window.InterMetrics.widthOf(cur + ' ' + words[i], size, weight, style) <= maxW) {
+        cur = cur + ' ' + words[i];
+        i++;
+      }
+      lines.push(cur);
+    }
+    if (ok2 && i >= words.length) return size;
+  }
+  return null;
+}
+
+/* Short name + a company that fills two lines at the 21 pt ceiling + a title made
+   of short words, so nothing is width-limited and the block is purely too tall. */
+var TALL = {
+  id: 't1',
+  first: 'Ana',
+  last: 'Rios',
+  company: 'Whitfield Cordovan Analytics Group',
+  title: 'Deputy General Counsel and Chief Privacy Officer for the Americas Region'
+};
+var tall = L.layout(TALL, null, CENTERED);
+dump('TALL — three title lines, height-limited (real metrics)', tall);
+
+var tallTitleLines = tall.lines.filter(function (l) { return l.field === 'title'; }).length;
+var tallCoLines = tall.lines.filter(function (l) { return l.field === 'company'; }).length;
+ok(tallTitleLines === 3, 'the title uses all three lines', 'got ' + tallTitleLines);
+ok(tallCoLines === 2 && tall.appliedSizes.company === 21, 'the company holds two lines at its 21 pt ceiling');
+ok(tall.appliedSizes.first === 36 && tall.appliedSizes.last === 26, 'first and last are at their ceilings, so nothing here is width-limited');
+
+var widthAllows = widestWrapSize(TALL.title, 3, S.BOX_W, S.WEIGHTS.title, S.STYLES.title);
+ok(widthAllows === 19, 'width alone would allow the title at its 19 pt ceiling in three lines', 'got ' + widthAllows);
+ok(
+  tall.appliedSizes.title < widthAllows - 1e-9,
+  '(a) the VERTICAL pass, not the width, is what set the title size — ' + widthAllows + ' pt fits the box, ' + tall.appliedSizes.title + ' pt was used'
+);
+near(tall.appliedSizes.title, 15.5, 1e-9, 'and it stopped at exactly 15.5 pt (literal)');
+/* 15.5 is the LARGEST half-point that fits: one more step must overflow, or the
+   guard shrank further than it had to. Re-derived from the advance model here. */
+var sumAt = function (t) { return 36 + 26 + S.GAP_SIZE + 2 * 21 + S.GAP_TITLE_SIZE + 3 * t; };
+ok(
+  ADVANCE_FACTOR_LITERAL * sumAt(15.5) <= 187.2 + 1e-9 && ADVANCE_FACTOR_LITERAL * sumAt(16) > 187.2,
+  '15.5 pt is the largest half-point step that fits — 16 pt would overflow BOX_H',
+  r4(ADVANCE_FACTOR_LITERAL * sumAt(15.5)) + ' fits, ' + r4(ADVANCE_FACTOR_LITERAL * sumAt(16)) + ' does not'
+);
+near(tall.blockHeight, ADVANCE_FACTOR_LITERAL * sumAt(15.5), 0.001, 'block height agrees with the advance model re-derived here');
+ok(tall.fits === true && !anyClipped(tall), 'nothing was clipped to achieve that — the guard shrinks, it does not truncate');
+assertInsideCell(tall, 'nothing outside the 288x216 cell (tall)');
+assertOpticalBoxCentered(tall, 'the optical ink box is still centred (tall)');
+assertVerticalIndependently(
+  tall,
+  [[36, 1], [26, 1], [S.GAP_SIZE, 0], [21, 1], [21, 1], [S.GAP_TITLE_SIZE, 0], [15.5, 1], [15.5, 1], [15.5, 1]],
+  'vertical model (incl. optical shift) re-derived independently agrees (tall)'
+);
+
+/* (b) containment across a sweep. Long titles of short words are exactly the shape
+   that reaches the guard, so this is not a decorative sweep. */
+var TALL_TITLES = [
+  'Deputy General Counsel and Chief Privacy Officer for the Americas Region',
+  'Chief Legal Officer and Head of Public Policy for North America Region',
+  'Head of Legal for Sales, Marketing and Global Data Privacy Compliance',
+  'Deputy General Counsel for Employment, Benefits and Immigration Matters',
+  'General Counsel and Secretary for the Americas and Asia Pacific Region',
+  'Senior Legal Director for Global Commercial and Regulatory Affairs Team',
+  'Executive Vice President, General Counsel & Corporate Secretary'
+];
+var TALL_COS = [
+  'Whitfield Cordovan Analytics Group',
+  'Meridian Group Holdings International',
+  'Northwind Analytics',
+  'Bristol-Myers Squibb Holdings International'
+];
+var tallChecked = 0;
+var tooTallCount = 0;
+var overflowCount = 0;
+var outsideCount = 0;
+var clippedCount = 0;
+TALL_TITLES.forEach(function (t) {
+  TALL_COS.forEach(function (c) {
+    [['Ana', 'Rios'], ['Marguerite', 'Delacroix-Whitfield'], ['Bartholomew', 'Vandergriff-Castellanos']].forEach(function (nm) {
+      [null, { enabled: true, wPt: 72, hPt: 72 }, { enabled: true, wPt: 108, hPt: 54 }].forEach(function (lg) {
+        ['left', 'center'].forEach(function (al) {
+          var att = { first: nm[0], last: nm[1], company: c, title: t };
+          var r = L.layout(att, null, lg ? { align: al, logo: lg } : { align: al });
+          tallChecked++;
+          if (r.blockHeight > 187.2 + 1e-9) tooTallCount++;
+          if (r.lines.filter(function (l) { return l.field === 'title'; }).length > 3) overflowCount++;
+          r.lines.forEach(function (l) {
+            if (l.lineTop < -1e-9 || l.lineTop + l.advance > 216 + 1e-9) outsideCount++;
+            if (l.x < -1e-9 || l.x + l.lineWidth > 288 + 1e-9) outsideCount++;
+          });
+          if (anyClipped(r)) clippedCount++;
+        });
+      });
+    });
+  });
+});
+ok(tooTallCount === 0, '(b) no block exceeds BOX_H across ' + tallChecked + ' three-line-title combinations', 'over = ' + tooTallCount);
+ok(overflowCount === 0, 'and no title ever emits a FOURTH line', 'over = ' + overflowCount);
+ok(outsideCount === 0, 'and no line lands outside the 288x216 cell', 'outside = ' + outsideCount);
+console.log('  note: ' + clippedCount + ' of ' + tallChecked + ' combinations clipped (a narrow reserve plus a long unbreakable word); clipping is still reported, never silent');
+
+/* (c) the change is a net win, not a wash. Two title lines are re-created here by
+   patching ONLY MAX_LINES in a sandboxed copy of spec.js — the same technique
+   section 20 uses for the gap constant — so the comparison is against the real
+   previous behaviour rather than a remembered number. */
+var twoLineSrc = require('fs').readFileSync(path.join(SITE, 'js', 'spec.js'), 'utf8')
+  .replace('MAX_LINES: { company: 2, title: 3 }', 'MAX_LINES: { company: 2, title: 2 }');
+ok(twoLineSrc.indexOf('title: 2 }') !== -1, 'sandbox: MAX_LINES really was patched back to two title lines');
+var vm = require('vm');
+var box = { console: { log: function () {} } };
+box.window = box;
+vm.createContext(box);
+vm.runInContext(require('fs').readFileSync(path.join(SITE, 'fonts', 'inter-metrics.js'), 'utf8'), box);
+vm.runInContext(twoLineSrc, box);
+vm.runInContext(require('fs').readFileSync(path.join(SITE, 'js', 'layout.js'), 'utf8'), box);
+box.window.InterMetrics = box.InterMetrics || box.window.InterMetrics;
+
+var biggerCount = 0;
+var smallerCount = 0;
+var sameCount = 0;
+TALL_TITLES.concat(['General Counsel', 'Chief Legal Officer']).forEach(function (t) {
+  var att = { first: 'Ana', last: 'Rios', company: 'Whitfield Cordovan Analytics Group', title: t };
+  var was = box.window.BadgeLayout.layout(att, null, CENTERED).appliedSizes.title;
+  var now = L.layout(att, null, CENTERED).appliedSizes.title;
+  if (now > was + 1e-9) biggerCount++;
+  else if (now < was - 1e-9) smallerCount++;
+  else sameCount++;
+});
+ok(smallerCount === 0, '(c) no title prints SMALLER than it did with two lines', 'smaller = ' + smallerCount);
+ok(biggerCount >= 5, 'and long titles print LARGER — that is the point of the third line', biggerCount + ' larger, ' + sameCount + ' unchanged');
+var wasTall = box.window.BadgeLayout.layout(TALL, null, CENTERED);
+console.log('  the TALL fixture: two lines at ' + wasTall.appliedSizes.title + ' pt (block ' + r4(wasTall.blockHeight) + ') -> three lines at ' + tall.appliedSizes.title + ' pt (block ' + r4(tall.blockHeight) + ')');
 
 // ===========================================================================
 console.log('\n============================================');

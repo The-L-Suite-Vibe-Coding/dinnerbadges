@@ -625,7 +625,28 @@ eq(
   sizeStr(a3auto),
   'a +20 request is capped back to the auto size, NOT pushed to the ceilings'
 );
-ok(a3up.warnings.length >= 3, 'the engine warned about each capped field', 'warnings = ' + a3up.warnings.length);
+/* Two of the three cappable fields are held back by CLIP avoidance and say so.
+   The title is held back by something else since MAX_LINES.title went 2 -> 3
+   (2026-08-20): at 19 pt its three lines make the block taller than BOX_H, so the
+   vertical-fit pass claws it back to 18 pt. That pass is deliberately silent — it
+   is not a truncation and nothing is lost — which is exactly the third reason the
+   dead-button probe at the top of js/overrides.js exists. Asserted here so the
+   distinction between "capped, warned" and "held by height, silent" cannot rot. */
+ok(a3up.warnings.length >= 2, 'the engine warned about each CLIP-capped field', 'warnings = ' + a3up.warnings.length);
+ok(
+  a3up.warnings.some(function (w) { return /\blast nudge was capped\b/.test(w); }) &&
+    a3up.warnings.some(function (w) { return /\bcompany nudge was capped\b/.test(w); }),
+  'both clip-capped fields are named in the warnings'
+);
+ok(
+  !a3up.warnings.some(function (w) { return /\btitle nudge was capped\b/.test(w); }),
+  'the title is NOT reported as clip-capped — it fits at 19 pt, it is the block height that refuses it'
+);
+ok(
+  a3up.appliedSizes.title === a3auto.title && a3auto.title < S.SIZES.title,
+  'the title still does not move (' + a3auto.title + ' pt, ceiling ' + S.SIZES.title + '), so the button is still correctly dead',
+  'applied = ' + a3up.appliedSizes.title
+);
 /* No character may be lost to a nudge, at any step count. */
 [-20, -6, -2, 0, 2, 6, 20, 100].forEach(function (n) {
   var res = L.layout(A3, { first: n, last: n, company: n, title: n });
@@ -841,13 +862,15 @@ panel = document.getElementById('override-panel');
 global.localStorage.removeItem(LOGO_KEY);
 if (typeof Store.init === 'function') Store.init();
 var def = OV.logo();
-eq(def.enabled, false, 'the logo reserve defaults to OFF');
+eq(def.enabled, true, 'the logo reserve defaults to ON (flipped 2026-08-20 — her stock is pre-printed)');
 eq(def.wIn, 1, 'default width is 1 in');
 eq(def.hIn, 1, 'default height is 1 in');
-eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":false,"wPt":72,"hPt":72},"align":"left"}',
+eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":72,"hPt":72},"align":"left"}',
   'the opts passed to layout() convert inches to points (1 in = 72 pt), and carry the alignment');
 
 // ---- round-trip -----------------------------------------------------------
+OV.setLogo({ enabled: false });
+eq(OV.logo().enabled, false, 'the toggle round-trips through the store (off)');
 OV.setLogo({ enabled: true });
 eq(OV.logo().enabled, true, 'the toggle round-trips through the store');
 OV.setLogo({ wIn: 1.5, hIn: 0.75 });

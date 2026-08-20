@@ -52,7 +52,7 @@
   var LOGO_MIN_IN = 0;
   var LOGO_MAX_IN = 4;
   var LOGO_STEP_IN = 0.25;
-  var LOGO_DEFAULT = { enabled: false, wIn: 1, hIn: 1 };
+  var LOGO_DEFAULT = { enabled: true, wIn: 1, hIn: 1 };  // ON by default — see BadgeSpec.LOGO_DEFAULT
 
   /* ---- text alignment (sheet-wide) ---------------------------------------
      LEFT by default (Julia's choice): all four lines share ONE left edge, and the

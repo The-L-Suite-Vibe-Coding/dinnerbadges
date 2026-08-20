@@ -98,19 +98,85 @@ body {
   color: var(--ink-3);
 }
 
+/* ------------------------------------------------------------- panel tabs */
+/* Two pages in the one panel: "Badges" (who is on the sheet) and "Sheet settings"
+   (things that apply to every badge). The tab strip is the ONLY chrome; each page
+   is a plain container so the section rules below work identically on both. */
+.panel-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 18px;
+  padding: 3px;
+  background: #f1f1f4;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.panel-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-tab:hover { background: #e7e7eb; }
+
+.panel-tab[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--panel-bg);
+  border-color: var(--line);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+.panel-tab[aria-selected="true"]:hover { background: var(--panel-bg); }
+
+.panel-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* A page that is not the active tab is gone, not merely invisible: !important so a
+   later `display` rule on .panel-page can never resurrect a hidden page. */
+.panel-page[hidden] { display: none !important; }
+
 /* Mount points owned by other items. They start empty (zero height); once populated
-   they get consistent spacing and a hairline divider between sections. */
-.side-panel > div:not(:empty) {
+   they get consistent spacing and a hairline divider between sections. Scoped to
+   .panel-page so the tab strip itself is never treated as a section, with the bare
+   .side-panel fallback kept for a module that appends straight into the panel. */
+.panel-page > div:not(:empty),
+.side-panel > div.panel-section:not(:empty) {
   margin-bottom: 20px;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--line-soft);
 }
 
-.side-panel > div:not(:empty):last-child {
+.panel-page > div:not(:empty):last-child,
+.side-panel > div.panel-section:not(:empty):last-child {
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: 0;
 }
+
+/* Export / Clear sit at the very top of the Badges page. js/pdf.js and js/store.js
+   each append their own button into #data-controls and neither may assume it got
+   there first, so the ORDER is settled here in CSS rather than by mount order:
+   Export PDF first, the quiet destructive "Clear all data" underneath it. */
+#data-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+#data-controls > .pdf-export { order: 1; }
+#data-controls > .clear-all { order: 2; }
 
 /* --------------------------------------------------------------- the sheet */
 /* One rendered 8.5 x 11 page. The preview module supplies width/height in px and

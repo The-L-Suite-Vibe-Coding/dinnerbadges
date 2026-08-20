@@ -29,8 +29,10 @@ In the macOS print dialog choose **Scale: 100%** (not "Scale to Fit"). In Adobe 
 **Page Sizing & Handling** to **Actual size**. In Chrome's print dialog open **More settings**
 and set **Scale** to **Default** or **Custom: 100**, and leave **Fit to printable area** off.
 
-Sheet stock: **Avery 5392** — 4" x 3" name badge inserts, 6 per sheet
-(<https://www.avery.com/products/badges/5392>).
+Sheet stock: 4" x 3" name badge inserts, 6 per sheet. Avery's own 5392 is one such product
+(<https://www.avery.com/products/badges/5392>), but the default sheet layout here is the
+top-left grid the existing Word template uses, not Avery's centred one — see **Sheet layout**
+below before assuming the two are interchangeable.
 
 **Always print one test sheet on plain paper first**, then hold it up against a real Avery
 sheet against a window or a lamp. If the text blocks sit inside the six cards, run the real
@@ -142,6 +144,16 @@ terminal to stop it.
 
 The preview is on the left, the controls are in the panel on the right.
 
+The panel has **two tabs**. **Badges** is everything to do with who is on the sheet: the
+Export / Clear buttons, Add attendee, Import a CSV, Paste a list, the attendee list, and the
+per-badge font size override, in that order top to bottom. **Sheet settings** is the second
+tab and holds the three settings that apply to every badge at once. Switching tabs only
+changes what you are looking at — nothing is reset, and no setting is forgotten while its
+tab is hidden.
+
+**Export PDF / Clear all data** sit at the very top of the Badges tab, so the button you
+reach for at the end of the job is the first thing on the panel.
+
 **Add attendee** — four fields: First, Last, Title, Company. Press **Add**, or hit Enter in
 any field. A first or last name is required; Title and Company can be blank.
 
@@ -177,7 +189,12 @@ inline; Enter saves, Escape cancels. The arrows reorder the list, which is how y
 which badge lands in which slot.
 
 **Font size override** — badges size themselves automatically: the tool shrinks and wraps text
-until it fits inside the badge. If you want a specific badge different, pick that person in
+until it fits inside the badge. Company can run to **two lines** and Title to **three**, which
+is what lets a long title like "Executive Vice President, General Counsel & Corporate
+Secretary" print at a readable size instead of being squeezed onto two lines. A title that
+uses all three lines fills the badge, so on those badges a "+ Bigger" click may do nothing
+even though the type is below its ceiling — there is no room left, and the tool greys the
+button out rather than letting you push text off the card. If you want a specific badge different, pick that person in
 **Adjust which badge**, then use **− Smaller** / **+ Bigger** to move all four lines together
 in 0.5 pt steps, or the **−** / **+** next to a single line to nudge just that line. Each
 line's current size is shown, along with why a button is greyed out (`at max`, `at floor`,
@@ -185,7 +202,7 @@ line's current size is shown, along with why a button is greyed out (`at max`, `
 
 ### Sheet settings — applies to every badge
 
-These three are under **Sheet settings · all badges** in the right-hand panel. Unlike the font
+These three live on the **Sheet settings** tab of the right-hand panel. Unlike the font
 size override, they are **not per-person** — they change every badge on every sheet.
 
 **Text alignment** — a two-option picker:
@@ -213,8 +230,13 @@ make text suddenly shrink or re-wrap.
 
 **Logo reserve** — for stock that already has a logo printed in each badge's bottom-right
 corner. Tick **"Reserve space for the pre-printed logo"** and set a **Width** and **Height** in
-**inches** (default **1 x 1**, adjustable from 0 to 4 in 0.25" steps). Off by default. The tool
-then keeps that corner rectangle clear of text.
+**inches** (default **1 x 1**, adjustable from 0 to 4 in 0.25" steps). **On by default**,
+because the stock in use has a pre-printed logo there. The tool keeps that corner rectangle
+clear of text; untick it and every badge goes back to using the full width.
+
+If you have used this tool before on the same computer and the reserve looks switched off,
+that is your saved setting being remembered rather than the new default — tick the box (or
+use **Clear all data**) and it will stick.
 
 Lines that sit level with the reserved corner — normally Company and Title — get less width to
 work with, so they may wrap or shrink sooner. What happens to their position depends on the
@@ -271,7 +293,7 @@ cell grid, per-line maximum and minimum point sizes).
 
 ## Tests
 
-There are **six test files**, together running **29,470 checks**. They are plain `node`
+There are **six test files**, together running **30,284 checks**. They are plain `node`
 scripts — no test framework, no `npm install`. Run them one at a time from inside `site/`:
 
 ```bash

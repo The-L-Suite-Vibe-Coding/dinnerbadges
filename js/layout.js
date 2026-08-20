@@ -22,9 +22,9 @@
  *      - first / last  : single line, never wrap. While width > available and
  *                        size - STEP >= floor: size -= STEP.
  *      - company/title : WRAP FIRST, THEN SHRINK. At the current size try a greedy
- *                        word wrap into at most MAX_LINES (2) lines; if no such
- *                        wrap has every line inside the available width, size -=
- *                        STEP and retry, down to the floor.
+ *                        word wrap into at most MAX_LINES lines (2 for company,
+ *                        3 for title); if no such wrap has every line inside the
+ *                        available width, size -= STEP and retry, down to the floor.
  *   2. Apply the caller's override delta (in STEP units, may be negative), then
  *      CLAMP hard to [floor, ceiling].
  *   2b. An override INCREASE is additionally capped at the largest step that does
@@ -519,15 +519,18 @@
       }
 
       // ---- 4. vertical fit ------------------------------------------------
-      // CURRENTLY UNREACHABLE — DO NOT DELETE. The tallest possible block is
-      // 1.1499 * (36 + 26 + 8 + 2*21 + 4 + 2*19) = 177.085 pt against a BOX_H of
-      // 187.2, so there is ~10.1 pt of permanent headroom and this loop never runs
-      // today. NOTE that headroom shrinks as the company-to-title gap grows: at
-      // GAP_TITLE_SIZE above ~12.8 pt this loop goes live and starts shrinking the
-      // title to pay for the gap. That path is exercised by test section 20. It is the guard that keeps that true if any ceiling, MAX_LINES value
-      // or the advance factor is ever raised. The logo reserve does NOT affect
-      // available height, so it cannot make this reachable either. Because it
-      // cannot run, `fits:false` in practice always comes from clipping.
+      // REACHABLE since MAX_LINES.title went 2 -> 3 (2026-08-20). The tallest
+      // possible block is now 1.1499 * (36 + 26 + 8 + 2*21 + 4 + 3*19) = 198.93 pt
+      // against a BOX_H of 187.2 — an 11.73 pt overshoot — so a badge that fills
+      // both company lines AND all three title lines lands here and pays for the
+      // extra line by shrinking, in the order title, company, last, first. (With
+      // MAX_LINES.title = 2 the worst case was 177.085 pt and this loop never ran.)
+      // The same headroom is also consumed by the company-to-title gap: above
+      // GAP_TITLE_SIZE ~12.8 pt the loop went live even at two title lines. Both
+      // paths are exercised by the test suite (sections 5 and 20).
+      // The logo reserve does NOT affect available height — it narrows width only —
+      // so it cannot make the loop run, though by forcing extra wrapping it can
+      // change how many lines there are to be too tall in the first place.
       var tooTall = false;
       var blockHeight = blockHeightOf();
       while (blockHeight > S.BOX_H + EPS) {

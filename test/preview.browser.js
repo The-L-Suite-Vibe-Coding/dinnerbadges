@@ -1187,6 +1187,12 @@
        { storeDefault: defaultAlign, specDefault: window.BadgeSpec.ALIGN_DEFAULT });
 
     await load(six);
+    /* clearAll() above reset the reserve to its DEFAULT, which has been ON since
+       2026-08-20 — and an enabled reserve narrows every line's span by 0.4 in, which
+       is exactly what the centred-block expectations below are measured against.
+       Switch it back off: this section is about ALIGNMENT, and section 9 owns the
+       reserve. Without this the 11d/11g expectations are out by 28.8 pt. */
+    if (typeof window.BadgeStore.setLogo === 'function') await setLogo({ enabled: false });
     await setAlign('left');
     var left = lineSnapshot();
     out.left = left[0];

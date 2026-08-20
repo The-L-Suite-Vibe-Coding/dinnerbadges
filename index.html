@@ -22,18 +22,38 @@
   </main>
 
   <!-- RIGHT: side input panel (sticky ~360px).
-       Every child below is an empty mount point owned by another item. -->
+       Two tab pages. Every child below is an empty mount point owned by another
+       module; the ids are the contract, the ORDER here is what the user sees.
+       #override-panel and #sheet-panel are declared explicitly (rather than being
+       appended by js/overrides.js) precisely so that order is set here and the
+       sheet-wide settings can live on their own page. -->
   <aside class="side-panel" id="side-panel">
     <header class="side-panel-head">
       <h1>Badge Sheet Builder</h1>
-      <p class="side-panel-sub">Avery 5392 &middot; 6 per sheet &middot; 4&#8243; &times; 3&#8243;</p>
+      <p class="side-panel-sub">6 per sheet &middot; 4&#8243; &times; 3&#8243;</p>
     </header>
 
-    <div id="entry-form"></div>
-    <div id="bulk-paste"></div>
-    <div id="csv-import"></div>
-    <div id="attendee-list"></div>
-    <div id="data-controls"></div>
+    <div class="panel-tabs" role="tablist" aria-label="Panel pages">
+      <button type="button" class="panel-tab" id="tab-badges" role="tab"
+              aria-selected="true" aria-controls="page-badges">Badges</button>
+      <button type="button" class="panel-tab" id="tab-sheet" role="tab"
+              aria-selected="false" aria-controls="page-sheet" tabindex="-1">Sheet settings</button>
+    </div>
+
+    <!-- PAGE 1: everything to do with who is on the sheet -->
+    <div class="panel-page" id="page-badges" role="tabpanel" aria-labelledby="tab-badges">
+      <div id="data-controls"></div>
+      <div id="entry-form"></div>
+      <div id="csv-import"></div>
+      <div id="bulk-paste"></div>
+      <div id="attendee-list"></div>
+      <div id="override-panel"></div>
+    </div>
+
+    <!-- PAGE 2: settings that apply to every badge on every sheet -->
+    <div class="panel-page" id="page-sheet" role="tabpanel" aria-labelledby="tab-sheet" hidden>
+      <div id="sheet-panel"></div>
+    </div>
   </aside>
 
 </div>
