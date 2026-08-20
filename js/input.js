@@ -797,30 +797,20 @@
 
   function doc(d) { return d || document; }
 
-  function el(tag, opts, d) {
-    var node = doc(d).createElement(tag);
-    opts = opts || {};
-    if (opts.className) node.className = opts.className;
-    if (opts.text !== undefined && opts.text !== null) node.textContent = String(opts.text);
-    if (opts.attrs) {
-      for (var k in opts.attrs) {
-        if (Object.prototype.hasOwnProperty.call(opts.attrs, k)) {
-          node.setAttribute(k, String(opts.attrs[k]));
-        }
-      }
-    }
-    if (opts.children) {
-      for (var i = 0; i < opts.children.length; i++) {
-        if (opts.children[i]) node.appendChild(opts.children[i]);
-      }
-    }
-    return node;
+  /* The builders themselves live in js/dom.js (window.BadgeDom) so this file and
+     js/overrides.js cannot drift apart on them - in particular on the never-innerHTML
+     rule that section 9's source audit enforces. Thin named wrappers rather than direct
+     aliases, so every existing call site in this file is untouched and a missing
+     BadgeDom fails with a message naming the file to load. */
+  function dom() {
+    var D = window.BadgeDom;
+    if (!D) throw new Error('BadgeInput: window.BadgeDom is missing - load js/dom.js first.');
+    return D;
   }
 
-  function clear(node) {
-    if (!node) return;
-    while (node.firstChild) node.removeChild(node.firstChild);
-  }
+  function el(tag, opts, d) { return dom().el(tag, opts, doc(d)); }
+
+  function clear(node) { dom().empty(node); }
 
   function sectionHeading(text, d) {
     return el('h2', { text: text }, d);
@@ -959,17 +949,7 @@
     return row;
   }
 
-  function button(label, aria, fn, d) {
-    var b = el('button', {
-      text: label,
-      attrs: { type: 'button', 'aria-label': aria }
-    }, d);
-    if (typeof fn === 'function' && typeof b.addEventListener === 'function') {
-      b.addEventListener('click', fn);
-    }
-    if (typeof fn !== 'function' && 'disabled' in b) b.disabled = true;
-    return b;
-  }
+  function button(label, aria, fn, d) { return dom().button(label, aria, fn, doc(d)); }
 
   /**
    * Inline edit form for one attendee.
@@ -1049,56 +1029,15 @@
   var renderPending = false;
   var listRoot = null;
 
-  /* Layout-only CSS for the classes this module introduces. styles.css is owned by
-     the scaffold item and only styles the shell plus generic inputs/buttons, so the
-     rules below are scoped strictly to our own class names, reuse the scaffold's
-     custom properties, and introduce no color of their own. Injected once. */
-  var STYLE_ID = 'badge-input-style';
-  var STYLE_CSS = [
-    '.entry-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
-    '.entry-actions{margin-top:10px}',
-    '.entry-msg,.att-edit-msg{margin:8px 0 0;font-size:12px;color:var(--ink-2);min-height:1em}',
-    '.hint{margin:0 0 8px;font-size:12px;color:var(--ink-2)}',
-    '.hint-soft{color:var(--ink-3)}',
-    '.bulk-actions{margin-top:8px}',
-    '.report{margin-top:10px;font-size:12px;color:var(--ink-2)}',
-    '.report p{margin:0 0 4px}',
-    '.report-error{font-weight:700}',
-    '.report-note{color:var(--ink-3)}',
-    '.report-list{margin:4px 0 0;padding-left:16px;list-style:disc}',
-    '.report-list li{margin:2px 0;word-break:break-word}',
-    '.att-list{list-style:none;margin:0;padding:0}',
-    '.att-row{display:grid;grid-template-columns:34px 1fr;gap:6px 8px;align-items:start;' +
-      'padding:8px 0;border-top:1px solid var(--line-soft)}',
-    '.att-row-editing{grid-template-columns:34px 1fr}',
-    '.att-edit-pos{grid-row:1;grid-column:1}',
-    '.att-edit-grid{grid-row:1;grid-column:2}',
-    '.att-row-editing .att-edit-msg{grid-column:2}',
-    '.att-pos{font-size:11px;color:var(--ink-3);white-space:nowrap;padding-top:2px}',
-    '.att-body{min-width:0}',
-    '.att-name{font-weight:700;word-break:break-word}',
-    '.att-meta{font-size:12px;color:var(--ink-2);word-break:break-word}',
-    '.att-company{font-style:italic}',
-    '.att-acts{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap}',
-    '.att-acts button{padding:4px 8px;font-size:12px}',
-    '.att-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
-    '.list-count{margin:0 0 8px;font-size:12px;color:var(--ink-3)}',
-    '.list-note{margin:0 0 8px;font-size:12px;color:var(--ink-2);font-weight:700}'
-  ].join('\n');
-
-  function injectStyles() {
-    if (!document.head || document.getElementById(STYLE_ID)) return;
-    var style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = STYLE_CSS;
-    document.head.appendChild(style);
-  }
+  /* This module's presentation lives in styles.css (the "data entry" section), not in
+     a style string here. It used to be injected at mount() from a STYLE_CSS array,
+     which meant panel styling had two homes and neither was obvious. Note that
+     js/preview.js keeps its own injected block ON PURPOSE - those rules control text
+     measurement, not appearance. */
 
   function mount() {
     if (mounted) return;
     mounted = true;
-
-    injectStyles();
 
     if (!store()) {
       console.warn('[input] BadgeStore not found at mount time; the panel will ' +

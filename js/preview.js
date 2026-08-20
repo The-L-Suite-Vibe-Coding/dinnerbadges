@@ -593,6 +593,25 @@
   /* Preview-only. Deliberately no border/outline on anything that represents ink;
      the dashed cell outline is drawn with `outline`, which occupies no space and
      exists only on screen. */
+  /*
+   * WHY THIS BLOCK STAYS IN JAVASCRIPT (and js/input.js's did not)
+   *
+   * The `.bp-line` rules below are not presentation — they are part of the
+   * preview/print fidelity contract. `font-kerning: none`, `font-variant-ligatures:
+   * none` and `font-feature-settings: "kern" 0, "liga" 0, "calt" 0` are what force the
+   * browser to advance text by the same plain widths InterMetrics measured and pdf-lib
+   * draws. Without them the browser applies kerning and ligatures, and the preview
+   * silently stops matching the PDF — the one failure this whole module is built to
+   * prevent.
+   *
+   * A rule that correctness depends on must not be able to go missing independently of
+   * the code that depends on it. In styles.css it could be edited, overridden or simply
+   * not loaded (a harness that forgets the <link>) and the only symptom would be badges
+   * that print differently from what was on screen. So this block ships with the module
+   * that needs it, and the purely cosmetic panel CSS lives in styles.css. That split is
+   * deliberate: one home for appearance, and correctness-critical rules kept next to the
+   * measurement they protect.
+   */
   function ensureStyle() {
     if (!haveDom() || document.getElementById(STYLE_ID)) return;
     var css = [

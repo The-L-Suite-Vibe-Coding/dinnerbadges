@@ -44,36 +44,9 @@
   var LABELS = { first: 'First name', last: 'Last name', company: 'Company', title: 'Title' };
   var EPS = 1e-9;
 
-  /* ---- logo reserve (BADGE_SPEC.md addendum 2C) ---------------------------
-     SHEET-WIDE, not per badge: one setting reserves the bottom-right corner of
-     EVERY cell so text never prints over pre-printed logo stock. The store keeps
-     inches; converting to points is the caller's job, so it is done here. */
-  var PT_PER_IN = 72;
-  var LOGO_MIN_IN = 0;
-  var LOGO_MAX_IN = 4;
-  var LOGO_STEP_IN = 0.25;
-  var LOGO_DEFAULT = { enabled: true, wIn: 1, hIn: 1 };  // ON by default — see BadgeSpec.LOGO_DEFAULT
-
-  /* ---- text alignment (sheet-wide) ---------------------------------------
-     LEFT by default (Julia's choice): all four lines share ONE left edge, and the
-     resulting block is centred in the badge — "centred block, left-aligned text",
-     not flush against the safety margin. The engine owns that arithmetic
-     (blockLeft = spanLo + (spanWidth - widestLine)/2, clamped to the inset), so
-     nothing here re-derives an x. 'center' is the old per-line centring. Like the
-     logo reserve and the sheet layout this is ONE setting for every badge, never
-     per attendee. BadgeSpec.ALIGNS / ALIGN_DEFAULT are the authority; the values
-     below are only the fallback for a build where spec.js has not loaded. */
-  var ALIGN_FALLBACK = ['left', 'center'];
-  var ALIGN_FALLBACK_DEFAULT = 'left';
-  var ALIGN_LABELS = {
-    left: 'Left — all four lines share one left edge',
-    center: 'Centred — each line centred on its own'
-  };
-
   /* ------------------------------------------------------------------ state */
 
   var els = null;          // built DOM references, or null before mount()
-  var logoEls = null;      // logo-reserve section refs (its own container)
   var selectedId = null;   // attendee id currently being adjusted
   var rosterSig = null;    // signature of the <select> contents, to avoid rebuilding it
   var busy = false;        // re-entrancy guard: our writes come back as store events
@@ -106,6 +79,32 @@
 
   function num(v) {
     return typeof v === 'number' && isFinite(v) ? v : 0;
+  }
+
+  /* The sheet-wide settings (text alignment, logo reserve, sheet layout) live in
+     js/sheet-settings.js. This module does NOT resolve them itself: it asks for the
+     single options object that module hands to BadgeLayout.layout(), so the per-badge
+     readout here and the sheet panel there cannot be laid out against different
+     settings. A missing module degrades to null, which layout() reads as "spec
+     defaults" - the same shape of degradation as a missing store. */
+  var warnedNoSheet = false;
+  function sheetSettings() {
+    var SS = window.BadgeSheetSettings;
+    if (!SS) {
+      if (!warnedNoSheet) {
+        warnedNoSheet = true;
+        console.warn('[BadgeOverrides] window.BadgeSheetSettings is missing - load ' +
+          'js/sheet-settings.js. Sizes shown here will assume the spec defaults, which ' +
+          'may not match the sheet.');
+      }
+      return null;
+    }
+    return SS;
+  }
+  function sheetLayoutOpts() {
+    var SS = sheetSettings();
+    if (!SS || typeof SS.layoutOpts !== 'function') return null;
+    try { return SS.layoutOpts(); } catch (err) { return null; }
   }
 
   /**
@@ -171,286 +170,6 @@
       console.warn('[BadgeOverrides] BadgeLayout.layout() failed:', err && err.message);
       return null;
     }
-  }
-
-  /* --------------------------------------------------------- logo reserve --- */
-
-  var warnedNoLogoStore = false;
-
-  /**
-   * Coerce one dimension to inches. Strict on purpose: only real numbers and
-   * numeric strings are accepted, so null / {} / [] / '' / 'abc' / NaN / Infinity
-   * all fall back to `fallback` rather than being silently stored as 0.
-   * In-range values are clamped to [0, 4] per the spec.
-   */
-  function clampInches(v, fallback) {
-    var n;
-    if (typeof v === 'number') {
-      n = v;
-    } else if (typeof v === 'string' && /^[+-]?(\d+\.?\d*|\.\d+)$/.test(v.trim())) {
-      n = Number(v.trim());
-    } else {
-      return fallback; // booleans, null, undefined, objects, arrays, junk strings
-    }
-    if (!isFinite(n)) return fallback; // NaN, +/-Infinity
-    if (n < LOGO_MIN_IN) return LOGO_MIN_IN;
-    if (n > LOGO_MAX_IN) return LOGO_MAX_IN;
-    return n;
-  }
-
-  function normalizeLogo(raw, base) {
-    var b = base || LOGO_DEFAULT;
-    var o = raw && typeof raw === 'object' ? raw : {};
-    return {
-      enabled: o.enabled === true,
-      wIn: clampInches(o.wIn, b.wIn),
-      hIn: clampInches(o.hIn, b.hIn)
-    };
-  }
-
-  /* The store owns this setting; getLogo() may not exist yet on older builds, in
-     which case the feature reads as OFF rather than breaking the panel. */
-  function logoConfig(d) {
-    if (!d.store || typeof d.store.getLogo !== 'function') {
-      if (!warnedNoLogoStore) {
-        warnedNoLogoStore = true;
-        console.warn(
-          '[BadgeOverrides] BadgeStore.getLogo() is unavailable — treating the logo ' +
-            'reserve as OFF. Badge sizes shown are for stock with no pre-printed logo.'
-        );
-      }
-      return { enabled: false, wIn: LOGO_DEFAULT.wIn, hIn: LOGO_DEFAULT.hIn, unavailable: true };
-    }
-    try {
-      return normalizeLogo(d.store.getLogo());
-    } catch (err) {
-      console.warn('[BadgeOverrides] BadgeStore.getLogo() threw:', err && err.message);
-      return { enabled: false, wIn: LOGO_DEFAULT.wIn, hIn: LOGO_DEFAULT.hIn, unavailable: true };
-    }
-  }
-
-  /* ---------------------------------------------------- sheet layout preset ---
-     Where the whole 2x3 grid sits on the page. Sheet-wide, like the logo reserve,
-     and nothing to do with badge CONTENT. BadgeSpec.SHEET_PRESETS is the authority;
-     it is read tolerantly (map or array, several plausible key names) because this
-     module must not hard-code a copy of data that lives in the spec. */
-  var SHEET_DEFAULT_KEY = 'sampleTopLeft';
-  var warnedNoPresets = false;
-  var warnedNoPresetStore = false;
-
-  /** [{key, label, originX, originY}] in declaration order, or [] when absent. */
-  function sheetPresets(d) {
-    var raw = d.spec && d.spec.SHEET_PRESETS;
-    if (!raw || typeof raw !== 'object') {
-      if (!warnedNoPresets) {
-        warnedNoPresets = true;
-        console.warn(
-          '[BadgeOverrides] BadgeSpec.SHEET_PRESETS is unavailable — the sheet layout ' +
-            'selector is disabled and the default top-left layout is assumed.'
-        );
-      }
-      return [];
-    }
-    var keys = Array.isArray(raw) ? raw.map(function (_, i) { return i; }) : Object.keys(raw);
-    var out = [];
-    for (var i = 0; i < keys.length; i++) {
-      var v = raw[keys[i]];
-      if (!v || typeof v !== 'object') continue;
-      var key = typeof v.key === 'string' ? v.key : String(keys[i]);
-      var origin = v.origin && typeof v.origin === 'object' ? v.origin : v;
-      var ox = num(origin.x !== undefined ? origin.x : origin.originX);
-      var oy = num(origin.y !== undefined ? origin.y : origin.originY);
-      out.push({
-        key: key,
-        label: typeof v.label === 'string' ? v.label : typeof v.name === 'string' ? v.name : key,
-        originX: ox,
-        originY: oy
-      });
-    }
-    return out;
-  }
-
-  /** The stored key, guarded, falling back to the documented default. */
-  function sheetPresetKey(d) {
-    if (!d.store || typeof d.store.getSheetPreset !== 'function') {
-      if (!warnedNoPresetStore) {
-        warnedNoPresetStore = true;
-        console.warn(
-          '[BadgeOverrides] BadgeStore.getSheetPreset() is unavailable — the sheet ' +
-            'layout selector is disabled and the default layout is assumed.'
-        );
-      }
-      return { key: SHEET_DEFAULT_KEY, unavailable: true };
-    }
-    var k;
-    try {
-      k = d.store.getSheetPreset();
-    } catch (err) {
-      console.warn('[BadgeOverrides] BadgeStore.getSheetPreset() threw:', err && err.message);
-      return { key: SHEET_DEFAULT_KEY, unavailable: true };
-    }
-    return { key: typeof k === 'string' && k ? k : SHEET_DEFAULT_KEY, unavailable: false };
-  }
-
-  function commitSheetPreset(key) {
-    var d = deps();
-    if (!d) return false;
-    if (typeof d.store.setSheetPreset !== 'function') {
-      console.warn('[BadgeOverrides] BadgeStore.setSheetPreset() is unavailable — cannot save the sheet layout.');
-      renderSheet();
-      return false;
-    }
-    var list = sheetPresets(d);
-    var known = false;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].key === key) known = true;
-    }
-    if (!known) {
-      console.warn('[BadgeOverrides] ignoring unknown sheet preset "' + key + '".');
-      renderSheet();
-      return false;
-    }
-    try {
-      d.store.setSheetPreset(key);
-    } catch (err) {
-      console.warn('[BadgeOverrides] BadgeStore.setSheetPreset() threw:', err && err.message);
-    }
-    renderSheet();
-    return true;
-  }
-
-  /* -------------------------------------------------------- text alignment ---
-     Sheet-wide horizontal alignment of the badge text: 'left' (default) or
-     'center'. The valid set and the default come from BadgeSpec, never from a
-     local copy — this module only holds a fallback for the case where spec.js
-     is not loaded at all. */
-  var warnedNoAligns = false;
-  var warnedNoAlignStore = false;
-
-  /** The valid alignment keys, in declaration order. */
-  function alignList(d) {
-    var raw = d.spec && d.spec.ALIGNS;
-    var out = [];
-    if (Array.isArray(raw)) {
-      for (var i = 0; i < raw.length; i++) {
-        if (typeof raw[i] === 'string' && raw[i] && out.indexOf(raw[i]) === -1) out.push(raw[i]);
-      }
-    }
-    if (!out.length) {
-      if (!warnedNoAligns) {
-        warnedNoAligns = true;
-        console.warn(
-          '[BadgeOverrides] BadgeSpec.ALIGNS is unavailable — falling back to ' +
-            ALIGN_FALLBACK.join(' / ') + ' with "' + ALIGN_FALLBACK_DEFAULT + '" as the default.'
-        );
-      }
-      return ALIGN_FALLBACK.slice();
-    }
-    return out;
-  }
-
-  /** The default alignment: the spec's, if it is one of the spec's own keys. */
-  function alignDefault(d) {
-    var list = alignList(d);
-    var def = d.spec && d.spec.ALIGN_DEFAULT;
-    if (typeof def === 'string' && list.indexOf(def) !== -1) return def;
-    return list.indexOf(ALIGN_FALLBACK_DEFAULT) !== -1 ? ALIGN_FALLBACK_DEFAULT : list[0];
-  }
-
-  /**
-   * The alignment in force, guarded. `BadgeStore.getAlign()` may be missing on an
-   * older build or under a surprising script order; that must leave the panel
-   * working (and honest about it), not throw. LEFT is the documented default, so
-   * falling back to it also happens to be what the engine does with no opts.
-   */
-  function alignConfig(d) {
-    var def = alignDefault(d);
-    if (!d.store || typeof d.store.getAlign !== 'function') {
-      if (!warnedNoAlignStore) {
-        warnedNoAlignStore = true;
-        console.warn(
-          '[BadgeOverrides] BadgeStore.getAlign() is unavailable — assuming "' + def +
-            '" alignment. The alignment selector is disabled because there is nowhere ' +
-            'to save a change.'
-        );
-      }
-      return { value: def, unavailable: true };
-    }
-    var v;
-    try {
-      v = d.store.getAlign();
-    } catch (err) {
-      console.warn('[BadgeOverrides] BadgeStore.getAlign() threw:', err && err.message);
-      return { value: def, unavailable: true };
-    }
-    var list = alignList(d);
-    return {
-      value: typeof v === 'string' && list.indexOf(v) !== -1 ? v : def,
-      unavailable: false
-    };
-  }
-
-  /**
-   * Write the alignment. The store owns persistence and emits `align:changed`,
-   * which is what repaints the preview — this module never touches the preview
-   * or localStorage itself.
-   */
-  function commitAlign(value) {
-    var d = deps();
-    if (!d) return false;
-    if (alignList(d).indexOf(value) === -1) {
-      console.warn('[BadgeOverrides] ignoring unknown text alignment "' + value + '".');
-      renderAlign();
-      return false;
-    }
-    if (typeof d.store.setAlign !== 'function') {
-      console.warn('[BadgeOverrides] BadgeStore.setAlign() is unavailable — cannot save the text alignment.');
-      renderAlign(); // snap the control back to the truth
-      return false;
-    }
-    try {
-      d.store.setAlign(value);
-    } catch (err) {
-      console.warn('[BadgeOverrides] BadgeStore.setAlign() threw:', err && err.message);
-    }
-    renderAlign();
-    render(); // the applied-size readout is computed WITH the alignment
-    return true;
-  }
-
-  /**
-   * The third argument to BadgeLayout.layout(). Points, as the engine wants, and
-   * the alignment alongside the reserve: a readout computed under one alignment
-   * while the sheet prints under another is exactly the divergence this module
-   * exists to prevent.
-   */
-  function layoutOpts(cfg, align) {
-    return {
-      logo: {
-        enabled: !!cfg.enabled,
-        wPt: cfg.wIn * PT_PER_IN,
-        hPt: cfg.hIn * PT_PER_IN
-      },
-      align: align
-    };
-  }
-
-  /* Geometry the reserve imposes on the lines level with it, straight from the
-     spec: span [INSET, 288 - wPt], centered in THAT span. Shown in the panel so a
-     physical measurement against real stock can be checked without a calculator. */
-  function logoGeometry(d, cfg) {
-    var wPt = cfg.wIn * PT_PER_IN;
-    var hPt = cfg.hIn * PT_PER_IN;
-    return {
-      wPt: wPt,
-      hPt: hPt,
-      availW: d.spec.CELL_W - wPt - d.spec.INSET,
-      center: (d.spec.INSET + (d.spec.CELL_W - wPt)) / 2,
-      fullW: d.spec.BOX_W,
-      fullCenter: d.spec.CELL_W / 2,
-      reserveX: d.spec.CELL_W - wPt,
-      reserveY: d.spec.CELL_H - hPt
-    };
   }
 
   function hasLine(res, field) {
@@ -604,13 +323,17 @@
   function buildModel(d, attendee) {
     var override = ownOverride(d, attendee.id) || {};
     /* The logo reserve narrows the lines level with it, so it changes the applied
-       sizes. Every call below — auto, current, and every probe — gets the same
-       opts, or the readout would describe a sheet nobody is printing. */
-    var logo = logoConfig(d);
-    /* Alignment travels with the reserve for the same reason: the panel must
-       describe the sheet that is actually going to print. */
-    var align = alignConfig(d);
-    var opts = layoutOpts(logo, align.value);
+       sizes, and the alignment travels with it for the same reason: the panel must
+       describe the sheet that is actually going to print. Both come from
+       js/sheet-settings.js as ONE object, and every call below — auto, current, and
+       every probe — gets that same object, or the readout would describe a sheet
+       nobody is printing. */
+    var opts = sheetLayoutOpts();
+    var SS = sheetSettings();
+    var sheetLogo = SS ? SS.logo() : null;
+    var alignState = (SS && typeof SS.alignState === 'function')
+      ? SS.alignState()
+      : { value: null, unavailable: true };
     var auto = safeLayout(d, attendee, null, opts);
     var current = safeLayout(d, attendee, override, opts);
     if (!auto || !current) return null;
@@ -699,9 +422,9 @@
       fits: current.fits,
       warnings: current.warnings || [],
       truncatedAny: truncatedAny,
-      logo: logo,
-      align: align.value,
-      alignUnavailable: !!align.unavailable,
+      logo: sheetLogo,
+      align: alignState.value,
+      alignUnavailable: !!alignState.unavailable,
       logoOpts: opts,
       /* Per-line horizontal geometry. `center` shows which lines the reserve
          actually narrowed (they recenter left of the unaffected ones); `x` is the
@@ -723,38 +446,19 @@
 
   /* ------------------------------------------------------------ DOM plumbing */
 
-  function el(tag, opts) {
-    var node = doc().createElement(tag);
-    if (opts) {
-      if (opts.text !== undefined && opts.text !== null) node.textContent = String(opts.text);
-      if (opts.className) node.className = opts.className;
-      if (opts.id) node.id = opts.id;
-      if (opts.style) {
-        for (var k in opts.style) {
-          if (Object.prototype.hasOwnProperty.call(opts.style, k)) node.style[k] = opts.style[k];
-        }
-      }
-      if (opts.attrs) {
-        for (var a in opts.attrs) {
-          if (Object.prototype.hasOwnProperty.call(opts.attrs, a)) {
-            node.setAttribute(a, String(opts.attrs[a]));
-          }
-        }
-      }
-    }
-    return node;
+  /* Shared with js/input.js via js/dom.js (window.BadgeDom) — see the note there.
+     Thin wrappers, so no call site in this file changes. */
+  function dom() {
+    var D = window.BadgeDom;
+    if (!D) throw new Error('BadgeOverrides: window.BadgeDom is missing - load js/dom.js first.');
+    return D;
   }
+  function el(tag, opts) { return dom().el(tag, opts, doc()); }
 
   /* Never innerHTML — not even for clearing. */
-  function empty(node) {
-    while (node.firstChild) node.removeChild(node.firstChild);
-  }
+  function empty(node) { dom().empty(node); }
 
-  function button(label, aria, onClick) {
-    var b = el('button', { text: label, attrs: { type: 'button', 'aria-label': aria } });
-    b.addEventListener('click', onClick);
-    return b;
-  }
+  function button(label, aria, onClick) { return dom().button(label, aria, onClick, doc()); }
 
   /* Insert our own container into the side panel, immediately after the attendee
      list. We never write into #attendee-list itself — another item owns its rows. */
@@ -780,379 +484,6 @@
     return panel;
   }
 
-  /* The logo reserve gets its OWN side-panel child, so the shell's hairline rule
-     separates it from the per-badge controls: different scope, different block. */
-  function createLogoPanel(document, afterNode) {
-    var existing = document.getElementById(SHEET_PANEL_ID);
-    if (existing) {
-      empty(existing);
-      return existing;
-    }
-    var panel = el('div', { id: SHEET_PANEL_ID });
-    var parent = (afterNode && afterNode.parentNode) || containerParent(document);
-    if (!parent) return null;
-    if (afterNode && afterNode.parentNode === parent) {
-      parent.insertBefore(panel, afterNode.nextSibling);
-    } else {
-      parent.appendChild(panel);
-    }
-    return panel;
-  }
-
-  /* --------------------------------------------------- build: logo section --- */
-
-  /**
-   * The sheet-wide settings panel: text alignment, logo reserve, sheet layout.
-   * Deliberately a SEPARATE container from the per-badge controls (the shell puts
-   * a hairline between side-panel children), with its own heading and copy that
-   * says "every badge on every sheet" — none of it may read as one more
-   * per-attendee nudge.
-   */
-  function buildLogoSection(panel) {
-    var refs = { panel: panel };
-
-    panel.appendChild(el('h2', { text: 'Sheet settings · all badges' }));
-    panel.appendChild(
-      el('p', {
-        text:
-          'These apply to every badge on every sheet, not just the selected one.',
-        style: { margin: '0 0 12px', fontSize: '11px', color: 'var(--ink-3)' }
-      })
-    );
-
-    // ---- text alignment ------------------------------------------------
-    // Same control idiom as the sheet layout below (a two-option <select>), so
-    // the sheet-wide group reads as one block of settings rather than a pile of
-    // unrelated widgets.
-    panel.appendChild(subLabel('Text alignment'));
-    panel.appendChild(
-      el('p', {
-        text:
-          'How every badge’s four lines sit horizontally — the selected attendee ' +
-          'is not treated differently.',
-        style: { margin: '0 0 6px', fontSize: '11px', color: 'var(--ink-3)' }
-      })
-    );
-    refs.alignSelect = el('select', {
-      id: 'text-align',
-      attrs: { 'aria-label': 'Text alignment for every badge' }
-    });
-    refs.alignSelect.addEventListener('change', function () {
-      commitAlign(refs.alignSelect.value);
-    });
-    panel.appendChild(refs.alignSelect);
-    refs.alignNote = el('p', {
-      attrs: { 'data-role': 'align-note' },
-      style: { margin: '6px 0 0', fontSize: '11px', color: 'var(--ink-3)' }
-    });
-    panel.appendChild(refs.alignNote);
-
-    panel.appendChild(subLabel('Logo reserve', { marginTop: '16px' }));
-    panel.appendChild(
-      el('p', {
-        text: 'For pre-printed stock with a logo in each badge’s bottom-right corner.',
-        style: { margin: '0 0 8px', fontSize: '11px', color: 'var(--ink-3)' }
-      })
-    );
-
-    // ---- toggle -------------------------------------------------------
-    var toggleRow = el('label', {
-      style: { display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 10px', fontSize: '13px', color: 'var(--ink)' }
-    });
-    refs.toggle = el('input', {
-      id: 'logo-enabled',
-      attrs: { type: 'checkbox', 'aria-label': 'Reserve logo space on every badge' }
-    });
-    refs.toggle.type = 'checkbox';
-    refs.toggle.addEventListener('change', function () {
-      commitLogo({ enabled: refs.toggle.checked === true });
-    });
-    toggleRow.appendChild(refs.toggle);
-    toggleRow.appendChild(el('span', { text: 'Reserve space for the pre-printed logo' }));
-    panel.appendChild(toggleRow);
-
-    // ---- dimensions ---------------------------------------------------
-    refs.dims = el('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-end' } });
-    refs.width = buildDimField(refs.dims, 'logo-width', 'Width', function (v) {
-      commitLogo({ wIn: v });
-    });
-    refs.height = buildDimField(refs.dims, 'logo-height', 'Height', function (v) {
-      commitLogo({ hIn: v });
-    });
-    panel.appendChild(refs.dims);
-
-    refs.note = el('p', {
-      attrs: { 'data-role': 'logo-note' },
-      style: { margin: '8px 0 0', fontSize: '11px', color: 'var(--ink-3)' }
-    });
-    panel.appendChild(refs.note);
-
-    // ---- sheet layout preset ------------------------------------------
-    panel.appendChild(subLabel('Sheet layout', { marginTop: '16px' }));
-    panel.appendChild(
-      el('p', {
-        text:
-          'Where the whole 2 × 3 grid sits on the page. This moves the grid, not the ' +
-          'badge contents.',
-        style: { margin: '0 0 6px', fontSize: '11px', color: 'var(--ink-3)' }
-      })
-    );
-    refs.presetSelect = el('select', {
-      id: 'sheet-preset',
-      attrs: { 'aria-label': 'Sheet layout preset for every page' }
-    });
-    refs.presetSelect.addEventListener('change', function () {
-      commitSheetPreset(refs.presetSelect.value);
-    });
-    panel.appendChild(refs.presetSelect);
-    refs.presetNote = el('p', {
-      attrs: { 'data-role': 'sheet-note' },
-      style: { margin: '6px 0 0', fontSize: '11px', color: 'var(--ink-3)' }
-    });
-    panel.appendChild(refs.presetNote);
-
-    return refs;
-  }
-
-  /* Small uppercase divider label for a subsection inside the sheet-wide group. */
-  function subLabel(text, extraStyle) {
-    var st = {
-      display: 'block',
-      margin: '0 0 6px',
-      fontSize: '11px',
-      fontWeight: '700',
-      letterSpacing: '0.06em',
-      textTransform: 'uppercase',
-      color: 'var(--ink-2)'
-    };
-    if (extraStyle) {
-      for (var k in extraStyle) {
-        if (Object.prototype.hasOwnProperty.call(extraStyle, k)) st[k] = extraStyle[k];
-      }
-    }
-    return el('span', { text: text, style: st });
-  }
-
-  /**
-   * Render the sheet layout selector. Options come from BadgeSpec.SHEET_PRESETS so
-   * this module never holds its own copy of the geometry.
-   */
-  function renderSheet() {
-    if (!logoEls || !logoEls.presetSelect) return;
-    var d = deps();
-    if (!d) return;
-    var list = sheetPresets(d);
-    var stored = sheetPresetKey(d);
-    var sel = logoEls.presetSelect;
-    var note = logoEls.presetNote;
-
-    empty(sel);
-    if (!list.length) {
-      var only = el('option', { text: 'Sample layout (top-left, zero margin)' });
-      only.value = SHEET_DEFAULT_KEY;
-      sel.appendChild(only);
-      sel.value = SHEET_DEFAULT_KEY;
-      sel.disabled = true;
-      note.textContent =
-        'Sheet layout presets are unavailable in this build, so the grid is pinned to ' +
-        'the top-left corner of the page.';
-      return;
-    }
-
-    var active = null;
-    for (var i = 0; i < list.length; i++) {
-      var opt = el('option', { text: list[i].label }); // textContent, never markup
-      opt.value = list[i].key;
-      if (list[i].key === stored.key) {
-        opt.selected = true;
-        active = list[i];
-      }
-      sel.appendChild(opt);
-    }
-    if (!active) active = list[0];
-    sel.value = active.key;
-    sel.disabled = !!stored.unavailable;
-
-    var hint =
-      active.originX === 0 && active.originY === 0
-        ? 'Pins the grid to the top-left corner of the page, matching the sample sheet.'
-        : 'Centres the grid for real Avery stock: the grid starts ' +
-          fmt(active.originX) + ' pt in from the left and ' + fmt(active.originY) +
-          ' pt down from the top.';
-    note.textContent =
-      hint +
-      (stored.unavailable
-        ? ' (Cannot be changed in this build — the store has nowhere to save it.)'
-        : '');
-  }
-
-  /**
-   * Render the alignment selector. Options come from BadgeSpec.ALIGNS, so a third
-   * alignment added to the spec appears here without touching this file; only the
-   * human-readable labels live locally (the spec carries no copy for them).
-   */
-  function renderAlign() {
-    if (!logoEls || !logoEls.alignSelect) return;
-    var d = deps();
-    if (!d) return;
-    var list = alignList(d);
-    var cfg = alignConfig(d);
-    var sel = logoEls.alignSelect;
-
-    empty(sel);
-    for (var i = 0; i < list.length; i++) {
-      var key = list[i];
-      var label = Object.prototype.hasOwnProperty.call(ALIGN_LABELS, key)
-        ? ALIGN_LABELS[key]
-        : key.charAt(0).toUpperCase() + key.slice(1);
-      var opt = el('option', { text: label }); // textContent, never markup
-      opt.value = key;
-      if (key === cfg.value) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    sel.value = cfg.value;
-    sel.disabled = !!cfg.unavailable;
-
-    var note = logoEls.alignNote;
-    if (!note) return;
-    var hint;
-    if (cfg.value === 'center') {
-      hint =
-        'Each line is centred on its own, so the four lines start at four different ' +
-        'places — normally on ' + fmt(d.spec.CELL_W / 2) +
-        ' pt. Lines level with the logo reserve centre further left, as described below.';
-    } else if (cfg.value === 'left') {
-      hint =
-        'All four lines share one left edge, and the block of text as a whole is ' +
-        'centred in the badge — the widest line decides where that edge falls, so the ' +
-        'text never runs to the badge edge. It reaches the ' + fmt(d.spec.INSET) +
-        ' pt print safety margin only when the widest line fills the full width.';
-    } else {
-      hint = 'Alignment “' + cfg.value + '” is applied to every badge.';
-    }
-    note.textContent =
-      hint +
-      (cfg.unavailable
-        ? ' (Cannot be changed in this build — the store has nowhere to save it.)'
-        : '');
-  }
-
-  function buildDimField(parent, id, labelText, onCommit) {
-    var wrap = el('div', { style: { flex: '1 1 0', minWidth: '0' } });
-    wrap.appendChild(el('label', { text: labelText + ' (in)', attrs: { for: id } }));
-    var input = el('input', {
-      id: id,
-      attrs: {
-        type: 'number',
-        min: String(LOGO_MIN_IN),
-        max: String(LOGO_MAX_IN),
-        step: String(LOGO_STEP_IN),
-        inputmode: 'decimal',
-        'aria-label': labelText + ' of the reserved logo block, in inches'
-      },
-      style: {
-        width: '100%',
-        fontFamily: 'inherit',
-        fontSize: '13px',
-        padding: '7px 9px',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius)',
-        background: 'var(--field-bg)',
-        color: 'var(--ink)'
-      }
-    });
-    input.type = 'number';
-    input.addEventListener('change', function () {
-      onCommit(input.value);
-    });
-    wrap.appendChild(input);
-    var pts = el('span', {
-      attrs: { 'data-role': id + '-pt' },
-      style: { display: 'block', marginTop: '3px', fontSize: '10.5px', color: 'var(--ink-3)' }
-    });
-    wrap.appendChild(pts);
-    parent.appendChild(wrap);
-    return { input: input, pts: pts };
-  }
-
-  /**
-   * Write one field of the logo config. Garbage is REJECTED (the previous value is
-   * kept and the input snaps back to it) rather than stored; in-range numbers are
-   * clamped to 0–4 in. The store owns persistence and emits `logo:changed`, which
-   * is what repaints the preview.
-   */
-  function commitLogo(patch) {
-    var d = deps();
-    if (!d) return false;
-    if (typeof d.store.setLogo !== 'function') {
-      console.warn('[BadgeOverrides] BadgeStore.setLogo() is unavailable — cannot save the logo reserve.');
-      renderLogo(); // snap the controls back to the truth
-      return false;
-    }
-    var cur = logoConfig(d);
-    var next = {
-      enabled: Object.prototype.hasOwnProperty.call(patch, 'enabled') ? patch.enabled === true : cur.enabled,
-      wIn: Object.prototype.hasOwnProperty.call(patch, 'wIn') ? clampInches(patch.wIn, cur.wIn) : cur.wIn,
-      hIn: Object.prototype.hasOwnProperty.call(patch, 'hIn') ? clampInches(patch.hIn, cur.hIn) : cur.hIn
-    };
-    try {
-      d.store.setLogo(next);
-    } catch (err) {
-      console.warn('[BadgeOverrides] BadgeStore.setLogo() threw:', err && err.message);
-    }
-    renderLogo();
-    render(); // the per-badge sizes depend on the reserve
-    return true;
-  }
-
-  function fmtIn(n) {
-    var r = Math.round(n * 100) / 100;
-    return String(r);
-  }
-
-  function renderLogo() {
-    if (!logoEls) return;
-    var d = deps();
-    if (!d) return;
-    var cfg = logoConfig(d);
-    var g = logoGeometry(d, cfg);
-
-    logoEls.toggle.checked = cfg.enabled === true;
-    logoEls.toggle.disabled = !!cfg.unavailable;
-    logoEls.width.input.value = fmtIn(cfg.wIn);
-    logoEls.height.input.value = fmtIn(cfg.hIn);
-    logoEls.width.input.disabled = !!cfg.unavailable || !cfg.enabled;
-    logoEls.height.input.disabled = !!cfg.unavailable || !cfg.enabled;
-    logoEls.width.pts.textContent = fmt(g.wPt) + ' pt';
-    logoEls.height.pts.textContent = fmt(g.hPt) + ' pt';
-
-    var note = logoEls.note;
-    empty(note);
-    if (cfg.unavailable) {
-      note.textContent =
-        'Unavailable in this build: the store cannot save a logo reserve yet, so badges ' +
-        'are laid out for stock with no pre-printed logo.';
-      return;
-    }
-    if (!cfg.enabled) {
-      note.textContent = 'Off — every badge uses the full ' + fmt(g.fullW) + ' pt text width.';
-      return;
-    }
-    if (g.wPt <= 0 || g.hPt <= 0) {
-      note.textContent =
-        'On, but ' + (g.wPt <= 0 ? 'width' : 'height') + ' is 0 in, so nothing is actually ' +
-        'reserved. Set both dimensions above 0 for the reserve to have any effect.';
-      return;
-    }
-    note.textContent =
-      'Reserving ' + fmt(g.wPt) + ' × ' + fmt(g.hPt) + ' pt in each badge’s ' +
-      'bottom-right corner (x ' + fmt(g.reserveX) + '–' + d.spec.CELL_W +
-      ', y ' + fmt(g.reserveY) + '–' + d.spec.CELL_H + '). Lines level with it get ' +
-      fmt(g.availW) + ' pt of width instead of ' + fmt(g.fullW) + ' pt and centre on ' +
-      fmt(g.center) + ' instead of ' + fmt(g.fullCenter) + ' — so they sit ' +
-      fmt(g.fullCenter - g.center) + ' pt left of the name lines, by design.';
-  }
-
   /**
    * Empty a previously built panel and detach it, unless it IS the node we are
    * about to reuse. Ids in this module are unique by contract, so two live copies
@@ -1175,12 +506,9 @@
   var WHOLE_HINT_SHRINK_ONLY =
     'Auto is already the largest size that fits — you can only reduce. 0.5 pt per click.';
 
-  var ROW_STYLE = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '3px 0'
-  };
+  /* Presentation for this panel lives in styles.css (the "override panel" section).
+     Only genuinely dynamic styling stays in JS - see show(). */
+  var ROW_CLASS = 'ov-row';
 
   function buildSkeleton(panel) {
     var refs = { panel: panel, fieldRows: {} };
@@ -1188,7 +516,7 @@
     panel.appendChild(el('h2', { text: 'Font size override' }));
 
     // ---- attendee picker ----------------------------------------------
-    var pickWrap = el('div', { style: { marginBottom: '10px' } });
+    var pickWrap = el('div', { className: 'ov-pick' });
     pickWrap.appendChild(
       el('label', { text: 'Adjust which badge', attrs: { for: SELECT_ID } })
     );
@@ -1203,7 +531,7 @@
     // ---- empty-state note ---------------------------------------------
     refs.emptyNote = el('p', {
       text: 'Add an attendee to adjust their badge type sizes.',
-      style: { margin: '0', fontSize: '12px', color: 'var(--ink-3)' }
+      className: 'ov-empty-note'
     });
     panel.appendChild(refs.emptyNote);
 
@@ -1211,22 +539,13 @@
     refs.body = el('div');
 
     // whole-badge nudge: the primary control
-    var whole = el('div', {
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        margin: '2px 0 4px'
-      }
-    });
+    var whole = el('div', { className: 'ov-whole' });
     refs.smallerAll = button('− Smaller', 'Make the whole badge smaller by 0.5 pt', function () {
       nudge(FIELDS, -1);
     });
     refs.biggerAll = button('+ Bigger', 'Make the whole badge bigger by 0.5 pt', function () {
       nudge(FIELDS, 1);
     });
-    refs.smallerAll.style.flex = '1 1 0';
-    refs.biggerAll.style.flex = '1 1 0';
     whole.appendChild(refs.smallerAll);
     whole.appendChild(refs.biggerAll);
     refs.body.appendChild(whole);
@@ -1234,22 +553,16 @@
     refs.wholeHint = el('p', {
       text: WHOLE_HINT_DEFAULT,
       attrs: { 'data-role': 'whole-hint' },
-      style: { margin: '0 0 12px', fontSize: '11px', color: 'var(--ink-3)' }
+      className: 'ov-hint'
     });
     refs.body.appendChild(refs.wholeHint);
 
     // per-field rows: applied size + pinned state + fine control
-    var head = el('div', { style: ROW_STYLE });
+    var head = el('div', { className: ROW_CLASS });
     head.appendChild(
       el('span', {
         text: 'Applied sizes',
-        style: {
-          flex: '1 1 auto',
-          fontSize: '11px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          color: 'var(--ink-3)'
-        }
+        className: 'ov-row-head'
       })
     );
     refs.body.appendChild(head);
@@ -1262,23 +575,17 @@
     // the shell's deliberately colourless palette; weight and position carry it.
     refs.warnings = el('div', {
       attrs: { role: 'alert', 'data-role': 'layout-warnings' },
-      style: {
-        display: 'none',
-        margin: '10px 0 0',
-        padding: '7px 9px',
-        fontSize: '11px',
-        lineHeight: '1.35',
-        color: 'var(--ink-2)',
-        background: '#f4f4f6',
-        borderLeft: '3px solid var(--ink-3)',
-        borderRadius: '2px'
-      }
+      className: 'ov-warnings',
+      /* display ONLY - the appearance is in styles.css. show() toggles this inline
+         value, so styles.css must not set `display` for .ov-warnings or the inline ''
+         show() writes would lose to it. */
+      style: { display: 'none' }
     });
     refs.body.appendChild(refs.warnings);
 
     // status + reset
     refs.status = el('p', {
-      style: { margin: '10px 0 0', fontSize: '11px', color: 'var(--ink-3)' },
+      className: 'ov-status',
       attrs: { role: 'status', 'aria-live': 'polite' }
     });
     refs.body.appendChild(refs.status);
@@ -1286,8 +593,7 @@
     refs.reset = button('Reset to auto', 'Reset this badge to automatic sizes', function () {
       resetSelected();
     });
-    refs.reset.style.marginTop = '10px';
-    refs.reset.style.width = '100%';
+    refs.reset.className = 'ov-reset';
     refs.body.appendChild(refs.reset);
 
     panel.appendChild(refs.body);
@@ -1295,39 +601,22 @@
   }
 
   function buildFieldRow(parent, field) {
-    var row = el('div', { style: ROW_STYLE, attrs: { 'data-field': field } });
+    var row = el('div', { className: ROW_CLASS, attrs: { 'data-field': field } });
 
     var name = el('span', {
       text: LABELS[field],
-      style: { flex: '0 0 78px', fontSize: '12px', color: 'var(--ink-2)' }
+      className: 'ov-row-name'
     });
-    var size = el('span', {
-      style: {
-        flex: '0 0 46px',
-        fontSize: '12px',
-        fontVariantNumeric: 'tabular-nums',
-        textAlign: 'right'
-      }
-    });
+    var size = el('span', { className: 'ov-row-size' });
     /* Not uppercased: these labels are sentences ("capped to keep text"), and
        uppercase micro-type wraps them onto a second line in a 360 px panel. */
-    var badge = el('span', {
-      style: {
-        flex: '1 1 auto',
-        minWidth: '0',
-        fontSize: '10.5px',
-        lineHeight: '1.25',
-        color: 'var(--ink-3)'
-      }
-    });
+    var badge = el('span', { className: 'ov-row-badge' });
     var minus = button('−', 'Make ' + LABELS[field].toLowerCase() + ' smaller', function () {
       nudge([field], -1);
     });
     var plus = button('+', 'Make ' + LABELS[field].toLowerCase() + ' bigger', function () {
       nudge([field], 1);
     });
-    minus.style.padding = '2px 8px';
-    plus.style.padding = '2px 8px';
 
     row.appendChild(name);
     row.appendChild(size);
@@ -1492,20 +781,20 @@
     box.appendChild(
       el('strong', {
         text: model.truncatedAny ? 'Text is being cut off on this badge' : 'Sizing notes for this badge',
-        style: { display: 'block', fontSize: '11px', color: 'var(--ink)' }
+        className: 'ov-warn-title'
       })
     );
-    var ul = el('ul', { style: { margin: '4px 0 0', padding: '0 0 0 16px' } });
+    var ul = el('ul', { className: 'ov-warn-list' });
     for (var i = 0; i < list.length; i++) {
       // textContent: warnings quote attendee text, which may contain markup.
-      ul.appendChild(el('li', { text: String(list[i]), style: { marginBottom: '2px' } }));
+      ul.appendChild(el('li', { text: String(list[i]) }));
     }
     box.appendChild(ul);
     if (model.truncatedAny) {
       box.appendChild(
         el('span', {
           text: 'Shorten the text — no font size will fit it.',
-          style: { display: 'block', marginTop: '4px' }
+          className: 'ov-warn-more'
         })
       );
     }
@@ -1704,7 +993,7 @@
     if (!d) return false;
     var attendee = selectedAttendee(d);
     if (!attendee) return false;
-    var opts = layoutOpts(logoConfig(d), alignConfig(d).value); // same opts the readout used
+    var opts = sheetLayoutOpts(); // same opts the readout used
     var auto = safeLayout(d, attendee, null, opts);
     if (!auto) return false;
     var override = ownOverride(d, attendee.id) || {};
@@ -1785,10 +1074,8 @@
   function onStoreChange(change) {
     if (!els) return;
     if (busy) return; // our own prune/heal; render() is already in flight
-    var type = (change && change.type) || '';
-    if (type.indexOf('logo') !== -1 || type === '') renderLogo();
-    if (type.indexOf('align') !== -1 || type === '') renderAlign();
-    if (type.indexOf('sheet') !== -1 || type.indexOf('preset') !== -1 || type === '') renderSheet();
+    /* Any event re-renders: a sheet-wide change moves the applied sizes shown here, and
+       js/sheet-settings.js re-renders its own controls off the same notification. */
     render();
   }
 
@@ -1821,10 +1108,14 @@
     // Forget it, or syncSelect() will skip the rebuild and leave the picker blank.
     rosterSig = null;
 
-    // Sheet-wide logo reserve, in its own container right after the per-badge block.
-    var logoPanel = (opts && opts.logoContainer) || createLogoPanel(document, panel);
-    retirePanel(logoEls && logoEls.panel, logoPanel);
-    logoEls = logoPanel ? buildLogoSection(logoPanel) : null;
+    /* The sheet-wide settings panel is a separate module with its own container,
+       subscription and lifecycle (js/sheet-settings.js). Mounting it from here keeps
+       every existing caller of BadgeOverrides.mount() - app.js and the test suite -
+       working unchanged, and keeps the two panels' insertion order fixed in one place. */
+    var SS = sheetSettings();
+    if (SS && typeof SS.mount === 'function') {
+      SS.mount({ container: opts && opts.logoContainer, after: panel });
+    }
 
     if (unsubscribe) {
       try { unsubscribe(); } catch (err) { /* already detached */ }
@@ -1844,9 +1135,6 @@
       unsubscribe = function () { offA(); offB(); offC(); offD(); offE(); offF(); };
     }
 
-    renderLogo();
-    renderAlign();
-    renderSheet();
     render();
     return panel;
   }
@@ -1857,9 +1145,9 @@
       unsubscribe = null;
     }
     if (els && els.panel) empty(els.panel);
-    if (logoEls && logoEls.panel) empty(logoEls.panel);
+    var SS = window.BadgeSheetSettings;
+    if (SS && typeof SS.unmount === 'function') SS.unmount();
     els = null;
-    logoEls = null;
     rosterSig = null;
   }
 
@@ -1889,49 +1177,63 @@
       try { list = d.store.getAttendees() || []; } catch (err) { list = []; }
       return pruneStaleOverrides(d, list);
     },
-    // --- sheet-wide logo reserve ---------------------------------------------
-    /** Current setting as the store holds it (inches), guarded. */
+    /* Re-render this panel. Called by js/sheet-settings.js after a sheet-wide change,
+       because the applied sizes shown here are computed WITH the alignment and reserve. */
+    refresh: render,
+
+    /* ---------------------------------------------------------------------------
+     * SHEET-WIDE SETTINGS - delegated to window.BadgeSheetSettings.
+     *
+     * These moved to js/sheet-settings.js. They stay published here as thin pass-throughs
+     * so existing callers (and test/overrides.test.js) keep working against one name
+     * while the implementation lives in the right file. New code should call
+     * window.BadgeSheetSettings directly; this surface is compatibility, not design.
+     * Each returns null / [] / false when that module is absent, matching what the
+     * inline versions did when their dependencies were missing.
+     * ------------------------------------------------------------------------- */
     logo: function () {
-      var d = deps();
-      return d ? logoConfig(d) : null;
+      var SS = sheetSettings();
+      return SS ? SS.logo() : null;
     },
-    /** The exact third argument this module passes to BadgeLayout.layout(). */
-    logoOpts: function () {
-      var d = deps();
-      return d ? layoutOpts(logoConfig(d), alignConfig(d).value) : null;
-    },
-    /** Patch the setting: {enabled} / {wIn} / {hIn}, clamped and validated. */
+    logoOpts: sheetLayoutOpts,
     setLogo: function (patch) {
-      return commitLogo(patch && typeof patch === 'object' ? patch : {});
+      var SS = sheetSettings();
+      return SS ? SS.setLogo(patch) : false;
     },
-    clampInches: clampInches,
-    // --- sheet-wide text alignment -------------------------------------------
-    /** The alignment in force ('left' by default), guarded. */
+    clampInches: function (v, fallback) {
+      var SS = sheetSettings();
+      return SS ? SS.clampInches(v, fallback) : fallback;
+    },
     align: function () {
-      var d = deps();
-      return d ? alignConfig(d).value : null;
+      var SS = sheetSettings();
+      return SS ? SS.align() : null;
     },
-    /** The valid alignments, straight from BadgeSpec.ALIGNS. */
     aligns: function () {
-      var d = deps();
-      return d ? alignList(d) : [];
+      var SS = sheetSettings();
+      return SS ? SS.aligns() : [];
     },
-    /** Write the alignment through the store (which emits `align:changed`). */
-    setAlign: commitAlign,
-    /** Sheet layout preset: the stored key, and the list offered. */
+    setAlign: function (value) {
+      var SS = sheetSettings();
+      return SS ? SS.setAlign(value) : false;
+    },
     sheetPreset: function () {
-      var d = deps();
-      return d ? sheetPresetKey(d).key : null;
+      var SS = sheetSettings();
+      return SS ? SS.sheetPreset() : null;
     },
     sheetPresets: function () {
-      var d = deps();
-      return d ? sheetPresets(d) : [];
+      var SS = sheetSettings();
+      return SS ? SS.sheetPresets() : [];
     },
-    setSheetPreset: commitSheetPreset,
+    setSheetPreset: function (key) {
+      var SS = sheetSettings();
+      return SS ? SS.setSheetPreset(key) : false;
+    },
     FIELDS: FIELDS,
     PANEL_ID: PANEL_ID,
     SHEET_PANEL_ID: SHEET_PANEL_ID,
     LOGO_PANEL_ID: SHEET_PANEL_ID, // the logo controls live in the sheet-wide group
-    LOGO_LIMITS: { minIn: LOGO_MIN_IN, maxIn: LOGO_MAX_IN, stepIn: LOGO_STEP_IN, ptPerIn: PT_PER_IN }
+    /* Republished from js/sheet-settings.js, which owns the clamp range. */
+    LOGO_LIMITS: (window.BadgeSheetSettings && window.BadgeSheetSettings.LOGO_LIMITS) ||
+      { minIn: 0, maxIn: 4, stepIn: 0.25, ptPerIn: 72 }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

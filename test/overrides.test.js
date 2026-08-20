@@ -150,6 +150,10 @@ require(path.join(SITE, 'fonts', 'inter-metrics.js')); // REAL metrics, not a st
 require(path.join(SITE, 'js', 'spec.js'));
 require(path.join(SITE, 'js', 'layout.js'));
 require(path.join(SITE, 'js', 'store.js'));
+require(path.join(SITE, 'js', 'dom.js'));      // element builders shared with js/input.js
+/* The sheet-wide settings panel (alignment / logo reserve / sheet layout) is its own
+   module now. It must load BEFORE js/overrides.js, which republishes its API. */
+require(path.join(SITE, 'js', 'sheet-settings.js'));
 require(path.join(SITE, 'js', 'overrides.js'));
 
 var S = window.BadgeSpec;

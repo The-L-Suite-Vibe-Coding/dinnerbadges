@@ -185,6 +185,10 @@ var shimDocument = {
 
 var source = fs.readFileSync(INPUT_JS, 'utf8');
 var fakeWindow = { setTimeout: setTimeout, FileReader: undefined };
+/* js/input.js gets its element builders from js/dom.js (window.BadgeDom), so that has to
+   be present on the SAME fake window first — exactly as index.html loads it first. */
+new Function('window', 'document', fs.readFileSync(path.join(SITE, 'js', 'dom.js'), 'utf8'))
+  (fakeWindow, shimDocument);
 new Function('window', 'document', source)(fakeWindow, shimDocument);
 
 var BadgeInput = fakeWindow.BadgeInput;

@@ -1,4 +1,4 @@
-/* styles.css — app shell only.
+/* styles.css — app shell, plus the side-panel module presentation.
  * Neutral greys, no brand color. Two columns: flexible preview on the left,
  * fixed ~360px panel on the right. Verified usable at 1280x800 and 1440x900.
  * The preview module sets its own pixel sizes and absolute positions; this file
@@ -225,6 +225,7 @@ body {
 }
 
 .side-panel input[type="text"],
+.side-panel input[type="number"],
 .side-panel input[type="file"],
 .side-panel textarea,
 .side-panel select {
@@ -245,6 +246,7 @@ body {
 }
 
 .side-panel input[type="text"]:focus,
+.side-panel input[type="number"]:focus,
 .side-panel textarea:focus,
 .side-panel select:focus {
   outline: 2px solid var(--accent);
@@ -265,6 +267,119 @@ button {
 button:hover { background: #ebebee; }
 button:active { background: #e2e2e6; }
 button:disabled { opacity: 0.5; cursor: default; }
+
+/* ------------------------------------------------ data entry (js/input.js) */
+/* Moved here from a STYLE_CSS string inside js/input.js. Presentation for the four
+   mount points that file owns: the add form, the paste box, the CSV report and the
+   attendee list. Nothing here is load-bearing for layout or measurement — the badge
+   geometry is BadgeLayout's, and the metric-critical preview rules deliberately stay
+   inside js/preview.js (see the note there). */
+
+.entry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.entry-actions { margin-top: 10px; }
+.entry-msg,
+.att-edit-msg { margin: 8px 0 0; font-size: 12px; color: var(--ink-2); min-height: 1em; }
+
+.hint { margin: 0 0 8px; font-size: 12px; color: var(--ink-2); }
+.hint-soft { color: var(--ink-3); }
+.bulk-actions { margin-top: 8px; }
+
+.report { margin-top: 10px; font-size: 12px; color: var(--ink-2); }
+.report p { margin: 0 0 4px; }
+.report-error { font-weight: 700; }
+.report-note { color: var(--ink-3); }
+.report-list { margin: 4px 0 0; padding-left: 16px; list-style: disc; }
+.report-list li { margin: 2px 0; word-break: break-word; }
+
+.att-list { list-style: none; margin: 0; padding: 0; }
+.att-row {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 6px 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.att-row-editing { grid-template-columns: 34px 1fr; }
+.att-edit-pos { grid-row: 1; grid-column: 1; }
+.att-edit-grid { grid-row: 1; grid-column: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.att-row-editing .att-edit-msg { grid-column: 2; }
+.att-pos { font-size: 11px; color: var(--ink-3); white-space: nowrap; padding-top: 2px; }
+.att-body { min-width: 0; }
+.att-name { font-weight: 700; word-break: break-word; }
+.att-meta { font-size: 12px; color: var(--ink-2); word-break: break-word; }
+.att-company { font-style: italic; }
+.att-acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.att-acts button { padding: 4px 8px; font-size: 12px; }
+.list-count { margin: 0 0 8px; font-size: 12px; color: var(--ink-3); }
+.list-note { margin: 0 0 8px; font-size: 12px; color: var(--ink-2); font-weight: 700; }
+
+/* ------------------------- override panel (js/overrides.js) */
+/* Moved here from inline `style: {...}` objects inside js/overrides.js. Purely
+   presentational; the one genuinely dynamic style left in that file is the
+   show/hide of the warnings box, which is state, not styling. */
+
+.ov-pick { margin-bottom: 10px; }
+.ov-empty-note { margin: 0; font-size: 12px; color: var(--ink-3); }
+.ov-whole { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.ov-whole button { flex: 1 1 0; }
+.ov-hint { margin: 0 0 12px; font-size: 11px; color: var(--ink-3); }
+
+/* One row: label | size | state badge | -/+ */
+.ov-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.ov-row-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); flex: 1 1 auto; }
+.ov-row-name { flex: 0 0 78px; font-size: 12px; color: var(--ink-2); }
+.ov-row-size { flex: 0 0 46px; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+/* Not uppercased: these read as sentences ("capped to keep text") and uppercase
+   micro-type wraps them onto a second line in a 360px panel. */
+.ov-row-badge { flex: 1 1 auto; min-width: 0; font-size: 10.5px; line-height: 1.25; color: var(--ink-3); }
+.ov-row button { padding: 2px 8px; }
+
+/* Grey + rule rather than a colour, to stay with the shell's colourless palette;
+   weight and position carry the emphasis.
+   NOTE: `display` is deliberately NOT set here. js/overrides.js show()/hide() writes
+   element.style.display, and a `display:none` in this file would win over the inline
+   '' that show() sets, leaving the box permanently hidden. Visibility is state and
+   stays in JS; only the static appearance moved here. */
+.ov-warnings {
+  margin: 10px 0 0;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-2);
+  background: #f4f4f6;
+  border-left: 3px solid var(--ink-3);
+  border-radius: 2px;
+}
+.ov-warn-title { display: block; font-size: 11px; color: var(--ink); }
+.ov-warn-list { margin: 4px 0 0; padding: 0 0 0 16px; }
+.ov-warn-list li { margin-bottom: 2px; }
+.ov-warn-more { display: block; margin-top: 4px; }
+.ov-status { margin: 10px 0 0; font-size: 11px; color: var(--ink-3); }
+.ov-reset { margin-top: 10px; width: 100%; }
+
+/* -------------------- sheet settings panel (js/sheet-settings.js) */
+/* Same move, out of that file's inline style objects. */
+
+.ss-sublabel {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.ss-sublabel-spaced { margin-top: 16px; }
+.ss-note { margin: 0 0 12px; font-size: 11px; color: var(--ink-3); }
+.ss-note-tight { margin: 0 0 6px; font-size: 11px; color: var(--ink-3); }
+.ss-note-after { margin: 6px 0 0; font-size: 11px; color: var(--ink-3); }
+.ss-note-gap { margin: 0 0 8px; font-size: 11px; color: var(--ink-3); }
+.ss-note-loose { margin: 8px 0 0; font-size: 11px; color: var(--ink-3); }
+.ss-toggle { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; color: var(--ink); }
+.ss-dims { display: flex; gap: 10px; align-items: flex-end; }
+.ss-dim { flex: 1 1 0; min-width: 0; }
+.ss-dim-sub { display: block; margin-top: 3px; font-size: 10.5px; color: var(--ink-3); }
 
 /* --------------------------------------------------------- narrow fallback */
 /* Below ~1100px the two-column split stops being usable, so stack instead.
