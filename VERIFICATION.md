@@ -1112,3 +1112,122 @@ open site/test/preview.browser.html
 That gap is environmental, not evidence of a defect, and the node suites cover the same
 engine equality (`test/preview.test.js` alone compares `renderModel` against
 `BadgeLayout` across 27,992 checks and passes).
+
+---
+
+## 11. Word (.docx) export, added 2026-08-21
+
+Asked for as "the option to download as a docx file, alongside the button to download as
+a pdf", with the requirement clarified as: **a file people can open in Word or Google
+Docs that retains the exact formatting.** Node checks went **30,311 -> 30,411** across
+eight suites (two new: `zip` 50, `docx` 50), all green.
+
+### 11.1 The four decisions taken before building
+
+| Decision | Choice | Why |
+|---|---|---|
+| Font | **Arial** | Word has no fallback-font list. Naming Inter would silently substitute and reflow on any machine without it. Arial is universal and is what the sample `.docx` used - confirmed by reading it: 34 runs, all `w:ascii="Arial"`, no embedded fonts. |
+| Editability | **Locked reproduction** | One paragraph per engine-computed line, sizes and row heights fixed. |
+| Alignment | **Mirror the app** | Both modes, via indents (see 11.3). |
+| ZIP layer | **Hand-written** | See 11.2. |
+
+RTF was considered and rejected once the Google Docs requirement was stated: Docs imports
+RTF poorly, so it fails exactly the half that mattered.
+
+### 11.2 Why a hand-written ZIP writer, and the challenge to it
+
+A `.docx` is a ZIP archive, and this project has no npm and no bundler. Julia asked
+directly whether writing one was AI overengineering and what a human engineer would do.
+The answer given, and the reasoning it was decided on:
+
+- The ZIP layer is ~15% of the feature either way. The WordprocessingML generation is the
+  real work at ~300 lines regardless.
+- Only **STORE** (uncompressed) is needed. Deflate is the one genuinely hard part of ZIP
+  and it is skipped entirely, leaving a CRC-32 table, three fixed-size records and
+  little-endian writes - a frozen, fully published format.
+- A library is **not free here**: with no `npm install`, JSZip would be hand-vendored at
+  ~100 KB, and would then owe a provenance record, a hash and an audit under the
+  discipline section 10.6 established. 100 KB to avoid 120 lines is the wrong ratio.
+- On a project with a build step the answer would be the opposite, and that was said.
+
+**The risky assumption was tested before any code was written**: the sample `.docx` was
+repacked with `zip -0` and converted by LibreOffice - opens clean at 612 x 792 pt. That
+is what moved this from a coin-flip to a decision, because the one strong argument for a
+library (a corrupt archive that opens in one reader and fails in another) became testable
+rather than hypothetical.
+
+`test/zip.test.js` (50 checks) therefore verifies against things that did not come out of
+this repo: **CRC-32 known-answer tests** against published values (`"a"` = 0xE8B7BE43,
+the pangram = 0x414FA339, `"123456789"` = 0xCBF43926), and round-trips through **two
+independent readers**, Info-ZIP `unzip -t` and python `zipfile.testzip()`. It also asserts
+the writer is deterministic - the headers carry a fixed 1980 timestamp, not a clock, so
+the same roster twice is byte-identical.
+
+### 11.3 How the engine's geometry becomes Word markup
+
+Word measures in twips: 1 pt = 20 twips, so these are the sample's numbers x20.
+
+| app | Word |
+|---|---|
+| 612 x 792 pt page | `w:pgSz w:w="12240" w:h="15840"` |
+| sheet preset grid origin | `w:pgMar` left/top - `sampleTopLeft` = 0/0, `avery` = 360/1440 |
+| 288 x 216 pt cell | `w:tcW 5760 dxa`, `w:trHeight w:hRule="exact" w:val="4320"` |
+| `ADVANCE_FACTOR * size` | `w:spacing w:line=... w:lineRule="exact"` |
+| engine's `line.x` | `w:ind w:left` |
+| engine's `sizePt` | `w:sz` (HALF-points, so x2) |
+
+Three choices worth recording:
+
+- **The sheet preset becomes a page margin.** It is a grid origin here and there is no
+  other way for a Word table to express it. Everything below the sheet level is
+  cell-relative and so is untouched, exactly as `BadgeSpec.SHEET_PRESETS` documents.
+- **Alignment travels as an INDENT under both modes, never `w:jc center`.** The engine has
+  already put horizontal position into `line.x`, and that single number encodes both the
+  "centred block, one shared left edge" default AND the narrower position of any line
+  level with the logo reserve. Centring in Word would recompute a position from Arial's
+  widths and throw both away. Asserted directly in `test/docx.test.js`.
+- **Cell margins are forced to zero.** Word's default is 108 twips of left padding, which
+  would shift every indent by 5.4 pt.
+
+### 11.4 Measured fidelity - and one fix that was built, measured and thrown away
+
+Rendered through LibreOffice and compared word-by-word against our own PDF of the *same*
+roster with `pdftotext -bbox`:
+
+| | result |
+|---|---|
+| Words rendered | **57 vs 57 - nothing re-wrapped** |
+| Containment | **PASS** - no word leaves its cell, breaks the 14.4 pt inset, or enters the logo reserve |
+| Horizontal | -9.9 .. +0.1 pt (mean -2.1) |
+| Vertical | +3.9 .. +6.7 pt (mean +4.3) |
+
+The horizontal figure is the expected shape, not drift: each line **starts** exactly where
+the engine put it, and Arial's narrower glyphs pull later words in the same line left.
+
+The vertical offset is Word centring the layout *box* where the engine centres visible
+*ink* (section B of `js/layout.js`). The obvious fix - anchor the cell to the top and give
+the first paragraph the engine's own `lineTop` as spacing-before - **was built and
+measured, and it was worse**: the spread went from a tight +3.9..+6.7 to **-38.6..+0.5**,
+because `w:contextualSpacing` and Word's suppress-space-at-top-of-cell rule swallow that
+offset unevenly. A uniform few points low beats an erratic error on a printed sheet, so
+`w:vAlign="center"` stayed and the residual is documented instead of hidden. This is
+recorded because the discarded approach looks obviously right on paper.
+
+**An initial comparison was wrong and is corrected here**: the first measurement reported a
+-64 pt horizontal and -26 pt vertical outlier. The cause was operator error - the PDF being
+compared against had been generated from a different roster (one attendee had empty company
+and title). Regenerating both from one fixture produced the numbers above. The lesson is in
+the test now: `test/docx.test.js` builds the `.docx` and the PDF from the same array in the
+same run, so the two can never diverge again.
+
+### 11.5 What is NOT verified here
+
+**Google Docs import.** It is half the stated requirement and it could not be tested from
+the build environment - it needs a file uploaded to Drive and looked at. The specific thing
+to check is **row heights**: Word honours `w:trHeight w:hRule="exact"`, Google Docs treats a
+row height as a *minimum* and grows a row to fit its content. It should not bite, because
+the layout engine already guarantees every badge's text fits inside 187.2 pt of the 216 pt
+cell - 28.8 pt of slack with nothing to grow into - but that is reasoning, not a
+measurement, and it is the first thing to look at if a sheet comes back wrong.
+
+Word itself was also not available; LibreOffice and macOS `textutil` stood in for it.

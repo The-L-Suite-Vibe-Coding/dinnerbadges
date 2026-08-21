@@ -3,7 +3,12 @@
 A single-page tool that turns an attendee list into a print-ready PDF of name badges.
 
 Type attendees in, paste a list, or import a CSV. The page shows you a live preview of the
-printed sheet, and **Export PDF** downloads `badges.pdf`.
+printed sheet, **Export PDF** downloads `badges.pdf`, and **Export Word (.docx)** downloads
+`badges.docx` for anyone who needs to open or edit the sheet in Word or Google Docs.
+
+**Print from the PDF.** It is exact by construction. The `.docx` is for sharing and editing -
+it names Arial rather than the app's Inter, because Word has no fallback-font list and naming
+a font the reader does not have installed would silently reflow every badge.
 
 Each sheet is US Letter portrait with **6 badges — 2 columns across, 3 rows down**, each badge
 **4" wide x 3" tall**, with no gaps between them. Out of the box the grid is packed against the
@@ -273,8 +278,25 @@ sheet either way.
 you have more than six attendees. **Cell guides (screen only)** outlines the six badge cells
 on screen; those outlines are never printed and never in the PDF.
 
-**Export PDF** — at the bottom of the right panel. Downloads `badges.pdf`. Then print it using
-the settings at the top of this file.
+**Export PDF** — at the top of the Badges tab. Downloads `badges.pdf`. Then print it using
+the settings at the top of this file. This is the output to print: every position in it is
+computed, not re-derived by another program.
+
+**Export Word (.docx)** — next to it. Downloads `badges.docx`, which opens in Word, Google
+Docs and LibreOffice as a real 2x3 table, so a name can be corrected without coming back
+here. Same grid, same page size, same line breaks — every line break is decided here and
+written as its own paragraph, so Word is never asked to re-wrap anything.
+
+Two deliberate differences from the PDF, both measured rather than estimated:
+
+| | difference |
+|---|---|
+| Font | Arial, not Inter. Word cannot be given a fallback list, and a missing font reflows the sheet silently. Arial is everywhere and is what the original sample used. |
+| Vertical position | Text sits **3.9-6.7 pt lower** (mean 4.3). Word centres the block of text in the cell; this app centres the visible *ink*, which is slightly higher. Uniform across every badge. |
+| Horizontal position | Each line **starts** exactly where the PDF puts it; later words in the same line drift up to 9.9 pt left, because Arial's letters are narrower than Inter's. |
+
+Nothing re-wraps and nothing leaves its cell — `test/docx.test.js` renders the file through
+LibreOffice and measures every word to prove it.
 
 ---
 

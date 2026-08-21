@@ -60,7 +60,8 @@
     { role: 'input',     method: 'mount', names: ['BadgeInput', 'Input'] },
     { role: 'preview',   method: 'mount', names: ['BadgePreview', 'Preview'] },
     { role: 'overrides', method: 'mount', names: ['BadgeOverrides', 'Overrides'] },
-    { role: 'pdf',       method: 'mount', names: ['BadgePdf', 'PdfExport'] }
+    { role: 'pdf',       method: 'mount', names: ['BadgePdf', 'PdfExport'] },
+    { role: 'docx',      method: 'mount', names: ['BadgeDocx'] }
   ];
 
   function mountOne(entry) {
