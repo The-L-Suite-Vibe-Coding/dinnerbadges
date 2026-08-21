@@ -144,7 +144,6 @@ head('3. every line comes from BadgeLayout - sizes, indents, weights');
 var layoutOpts = { logo: OPTS.logo, align: OPTS.align };
 var sizeMisses = 0;
 var indentMisses = 0;
-var spacingMisses = 0;
 var totalLines = 0;
 var boldSeen = 0;
 var italicSeen = 0;
@@ -156,10 +155,8 @@ for (var r = 0; r < ROSTER.length; r++) {
     totalLines++;
     var halfPt = Math.round(line.sizePt * 2);
     var indentTw = Math.max(0, Math.round(line.x * 20));
-    var lineTw = Math.round(S.ADVANCE_FACTOR * line.sizePt * 20);
     if (xml.indexOf('<w:sz w:val="' + halfPt + '"/>') === -1) sizeMisses++;
     if (xml.indexOf('w:left="' + indentTw + '"') === -1) indentMisses++;
-    if (xml.indexOf('w:line="' + lineTw + '" w:lineRule="exact"') === -1) spacingMisses++;
     if (line.text && Number(line.weight) >= 700) boldSeen++;
     if (line.text && String(line.style) === 'italic') italicSeen++;
   }
@@ -167,7 +164,21 @@ for (var r = 0; r < ROSTER.length; r++) {
 assert(sizeMisses === 0, 'every engine size appears as w:sz in half-points',
   totalLines + ' lines checked');
 assert(indentMisses === 0, 'every engine x appears as w:ind w:left in twips');
-assert(spacingMisses === 0, 'every line advance appears as w:line with lineRule="exact"');
+/*
+ * Line spacing is SINGLE, not a locked exact height, and that is load-bearing rather than
+ * lazy: BadgeSpec.ADVANCE_FACTOR (1.1499) IS Arial's own hhea line height, so single
+ * spacing reproduces the engine's advance exactly while asking the reader to honour
+ * nothing unusual. Locking it with lineRule="exact" is what broke Google Docs - Docs
+ * substituted its own larger line height, every block grew past the cell, and because Docs
+ * treats a row height as a MINIMUM the rows grew and badges spilled into extra rows.
+ */
+assert(count(xml, '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>') >= totalLines,
+  'every paragraph uses SINGLE spacing (240/auto)',
+  count(xml, 'w:lineRule="auto"') + ' auto-spaced paragraphs');
+assert(xml.indexOf('w:lineRule="exact"') === -1,
+  'NO paragraph locks its line height - Google Docs ignores lineRule="exact" and grows the row');
+assert(xml.indexOf('w:after="0"') !== -1 && xml.indexOf('w:before="0"') !== -1,
+  'paragraph space before/after is zeroed, or Word adds 8 pt after every line');
 assert(boldSeen > 0 && count(xml, '<w:b/>') >= boldSeen,
   'the first-name lines are bold', boldSeen + ' bold lines expected');
 assert(italicSeen > 0 && count(xml, '<w:i/>') >= italicSeen,
@@ -452,6 +463,35 @@ function checkRender() {
     'worst ' + maxAbs(dys).toFixed(2) + ' pt');
   assert(Math.abs(mean(dys)) < 8, 'the vertical offset is a small UNIFORM shift, not a scatter',
     'mean ' + mean(dys).toFixed(2) + ' pt');
+
+  /*
+   * THE invariant that protects against the Google Docs failure. Docs treats a row height
+   * as a minimum and grows the row if the content is taller, which breaks the grid. So no
+   * badge's rendered block may come close to filling the 216 pt cell: the headroom is what
+   * absorbs a reader whose line height differs slightly from Arial's.
+   */
+  var byCell = {};
+  mine.forEach(function (w) {
+    var k = w.page + ':' + Math.floor(w.y0 / S.CELL_H) + ':' + Math.floor(w.x0 / S.CELL_W);
+    (byCell[k] = byCell[k] || []).push(w);
+  });
+  var tallest = 0;
+  Object.keys(byCell).forEach(function (k) {
+    var ws = byCell[k];
+    var top = Math.min.apply(null, ws.map(function (w) { return w.y0; }));
+    var bot = Math.max.apply(null, ws.map(function (w) { return w.y1; }));
+    tallest = Math.max(tallest, bot - top);
+  });
+  assert(tallest < S.BOX_H,
+    'the tallest badge block fits the ' + S.BOX_H + ' pt text box, leaving room for a reader ' +
+    'whose line height differs from Arial\'s',
+    'tallest ' + tallest.toFixed(1) + ' pt of ' + S.CELL_H + ' pt cell');
+  var deepest = 0;
+  mine.forEach(function (w) {
+    deepest = Math.max(deepest, w.y1 - Math.floor(w.y0 / S.CELL_H) * S.CELL_H);
+  });
+  assert(deepest <= S.CELL_H,
+    'no ink reaches the bottom edge of its row band', 'deepest ' + deepest.toFixed(1) + ' pt');
 }
 
 build().then(function () {

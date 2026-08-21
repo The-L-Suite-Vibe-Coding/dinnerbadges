@@ -1269,6 +1269,45 @@ has to be either tested directly or matched structurally against a file it wrote
 The sample `.docx` was available the whole time and is the ground truth that found this in
 minutes once it was actually consulted.
 
-**Still not verified: Word and Google Docs after the fix.** Neither is available here.
-LibreOffice is unchanged (2 pages, 612 x 792, 57 words, deltas identical), which confirms
-nothing regressed but cannot confirm the fix. Julia has a rebuilt file to check.
+### 11.7 Still wrong in Google Docs - the actual cause, from a screenshot
+
+The 11.6 fixes were real but were not the cause of what Julia was seeing. She sent a
+screenshot, which settled it in one look: the gap between "Margaret" and
+"Okonkwo-Whitfield" was roughly double what it should be. **Google Docs was ignoring the
+locked line height.**
+
+The chain: every paragraph pinned `w:line` to `ADVANCE_FACTOR * size` with
+`w:lineRule="exact"`. Word honours that; **Google Docs does not** - it substituted its own,
+larger line height. Every badge's block then grew taller than the cell, and because Docs
+treats a row height as a **minimum** (not a maximum, as `w:hRule="exact"` asks), the rows
+grew to fit and badges were pushed into extra rows. That is exactly the screenshot.
+
+**The fix removes the dependency instead of fighting it.** `BadgeSpec.ADVANCE_FACTOR` is
+1.1499, which is *Arial's own hhea line height* - `(1854+434+67)/2048` - as `js/spec.js`
+has said all along. So **single spacing in Arial already produces exactly the advance the
+engine computed.** Locking the line height was never necessary; it only created a
+dependency on a feature one of the two target readers mishandles. Every paragraph now uses
+`w:line="240" w:lineRule="auto"`.
+
+Measured through LibreOffice, before -> after the change:
+
+| | locked (exact) | single (auto) |
+|---|---|---|
+| Words rendered | 57 of 57 | 57 of 57 |
+| Horizontal | -9.90 .. +0.11 | -9.90 .. +0.11 (unchanged) |
+| Vertical | +3.88 .. +6.73 | **+3.57 .. +6.44** (slightly better) |
+| Tallest badge block | - | **185.7 pt** in a 216 pt cell |
+
+The rhythm is unchanged because the two numbers are the same number. The last row is the
+figure that matters now: the tallest block leaves **30 pt of headroom** in the cell, which
+is what absorbs a reader whose line height differs slightly from Arial's. `docx.test.js`
+asserts that headroom directly, plus that `lineRule="exact"` appears nowhere - the specific
+regression that caused this. Suite 63 -> 67 checks.
+
+**A second lesson, and the more useful one:** 11.6 was diagnosed by comparing against the
+sample, found three genuine faults, and fixed none of the reported symptom. The screenshot
+took one look. When a rendering is wrong and the renderer cannot be run locally, **ask for
+the picture before theorising** - it is worth more than any amount of structural comparison.
+
+**Still not verified: Word and Google Docs after these fixes.** Neither is available here.
+LibreOffice is unchanged, which confirms nothing regressed but cannot confirm the fix.

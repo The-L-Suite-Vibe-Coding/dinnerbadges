@@ -38,7 +38,8 @@
  *   page          612 x 792 pt          -> w:pgSz 12240 x 15840
  *   sheet preset  grid origin           -> w:pgMar left/top (see sectionProps)
  *   cell          288 x 216 pt          -> w:tcW 5760 dxa, w:trHeight exact 4320
- *   line advance  ADVANCE_FACTOR * size -> w:spacing w:line exact
+ *   line advance  ADVANCE_FACTOR * size -> SINGLE spacing (they are the same number:
+ *                                          1.1499 is Arial's own line height)
  *   line x        engine's line.x       -> w:ind w:left
  *   size          engine's sizePt       -> w:sz (HALF-points, so x2)
  *
@@ -154,16 +155,29 @@
   /**
    * One engine line -> one paragraph.
    *
-   * `w:line` with `w:lineRule="exact"` pins the line box to the engine's own advance
-   * (ADVANCE_FACTOR * size), so the vertical rhythm cannot be re-derived by Word from
-   * its own font metrics. `w:ind w:left` carries the engine's x. A gap line has no
-   * text, so it emits no run at all - the paragraph mark's size gives it its height.
+   * `w:ind w:left` carries the engine's x. A gap line has no text, so it emits no run at
+   * all - the paragraph mark's size (set in the pPr's rPr) is what gives it its height.
+   * Line spacing is SINGLE, for the reason spelled out below.
    */
   function paragraph(line, S) {
-    var lineTw = twips(S.ADVANCE_FACTOR * line.sizePt);
     var indent = Math.max(0, twips(line.x));
     var p = '<w:p><w:pPr>';
-    p += '<w:spacing w:before="0" w:after="0" w:line="' + lineTw + '" w:lineRule="exact"/>';
+    /*
+     * SINGLE spacing (240 = 1.0 line, lineRule auto), NOT a locked exact height.
+     *
+     * This looks like the weaker choice and is the stronger one. BadgeSpec.ADVANCE_FACTOR
+     * is 1.1499, which is Arial's own hhea line height ((1854+434+67)/2048) - so single
+     * spacing in Arial ALREADY produces exactly the advance the engine computed, and the
+     * rhythm comes out right without asking the word processor to honour anything unusual.
+     *
+     * The previous version pinned w:line to ADVANCE_FACTOR * size with lineRule="exact".
+     * Word honoured it; Google Docs did not, and substituted its own larger line height -
+     * which made every badge's block taller than the cell, grew the rows (Docs treats a
+     * row height as a MINIMUM, not a maximum) and pushed badges into extra rows. Depending
+     * on a feature one of the two target readers mishandles was the mistake; single spacing
+     * is understood identically by Word, Google Docs and LibreOffice.
+     */
+    p += '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>';
     p += '<w:ind w:left="' + indent + '" w:right="0" w:firstLine="0"/>';
     p += '<w:jc w:val="left"/>';
     p += runProps(line);   // sizes the paragraph mark, which is what an empty line uses
@@ -178,7 +192,7 @@
 
   /* An empty cell still needs one paragraph - Word rejects a <w:tc> without one. */
   function emptyParagraph() {
-    return '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>' +
+    return '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>' +
            '<w:rPr>' + rFonts() + '<w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr></w:pPr></w:p>';
   }
 
@@ -230,7 +244,7 @@
    */
   function pageBreak() {
     return '<w:p><w:pPr>' +
-           '<w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>' +
+           '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>' +
            '<w:rPr>' + rFonts() + '<w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr>' +
            '</w:pPr><w:r><w:br w:type="page"/></w:r></w:p>';
   }
