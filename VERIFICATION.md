@@ -1231,3 +1231,44 @@ cell - 28.8 pt of slack with nothing to grow into - but that is reasoning, not a
 measurement, and it is the first thing to look at if a sheet comes back wrong.
 
 Word itself was also not available; LibreOffice and macOS `textutil` stood in for it.
+
+### 11.6 The first version was wrong in Word AND Google Docs - what it was
+
+Julia opened the file and reported rows growing and badges spilling onto extra pages, in
+**both** Word and Google Docs. Every local check had passed: LibreOffice rendered it at
+612 x 792 with the correct 2x3 grid, all seven package parts were well-formed, and the
+measured word positions were within bounds. **LibreOffice is simply far more forgiving
+than Word, so the local verification was blind to this entire class of fault.**
+
+Diagnosed by reading the sample `.docx` - a file Word itself wrote - and comparing its
+element sequence against ours. Three causes, none of which LibreOffice cares about:
+
+| # | Cause | Effect in Word |
+|---|---|---|
+| 1 | **`word/settings.xml` was missing entirely.** | With no settings part, Word does not use current layout rules. It falls back to a LEGACY compatibility mode whose line-spacing and table row-height behaviour differ. The sample pins `compatibilityMode` **15**. This is the big one. |
+| 2 | **`<w:cantSplit/>` was missing from every row.** | Nothing stopped Word breaking a badge row across a page boundary - precisely "spilled onto more pages". The sample has it on every row. |
+| 3 | **Two schema element-ORDER violations.** | WordprocessingML is schema-ordered. `w:tblBorders` sat after `w:tblLayout` (must precede it) and `w:contextualSpacing` sat after `w:jc` (must precede it). Word responds to a misordered child by dropping properties or offering to "repair" the file; LibreOffice accepts it silently. |
+
+Fixes: `word/settings.xml` added with `compatibilityMode 15` (declared in
+`[Content_Types].xml`, related from `document.xml`); `<w:cantSplit/>` on every row;
+`w:tblBorders` removed outright (the sample has none, an unstyled table has no borders,
+and removing it eliminates the ordering question); `<w:tblLook/>` added as Word writes it;
+`w:contextualSpacing` removed outright (a list feature we never needed); `w:tblW` changed
+to `0`/`auto` to match the sample, with widths coming from `w:tblGrid` under the fixed
+layout; `w:header`/`w:footer` set to 720 as the sample has them.
+
+`test/docx.test.js` gained a group (**3b**) that asserts all of this STRUCTURALLY, because
+none of it can be caught by rendering: `cantSplit` on all six rows and before `trHeight`,
+the child order of `w:tblPr` / `w:pPr` / `w:tcPr`, the absence of `tblBorders` and
+`contextualSpacing`, and `compatibilityMode 15` read back out of the built package. Suite
+is 50 -> 63 checks.
+
+**THE LESSON, recorded because it cost a round trip with Julia:** for a Word document,
+"LibreOffice renders it correctly" is not evidence that Word will. The stricter consumer
+has to be either tested directly or matched structurally against a file it wrote itself.
+The sample `.docx` was available the whole time and is the ground truth that found this in
+minutes once it was actually consulted.
+
+**Still not verified: Word and Google Docs after the fix.** Neither is available here.
+LibreOffice is unchanged (2 pages, 612 x 792, 57 words, deltas identical), which confirms
+nothing regressed but cannot confirm the fix. Julia has a rebuilt file to check.

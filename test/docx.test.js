@@ -195,6 +195,60 @@ assert(D.FONT === 'Arial' && xml.indexOf('w:ascii="Arial"') !== -1,
   'the document names Arial (Julia\'s call - Word has no fallback list)');
 
 // =========================================================================
+head('3b. the things Word cares about and LibreOffice does not');
+// =========================================================================
+/*
+ * REGRESSION GROUP. The first version of this exporter passed every local check -
+ * LibreOffice rendered it at 612x792 with the right grid - and was still wrong in BOTH
+ * Word and Google Docs: rows grew and badges spilled onto extra pages. Three causes,
+ * none of which LibreOffice cares about, so nothing below can be verified by rendering.
+ * It is asserted structurally instead.
+ */
+
+/* (a) No settings part => Word does not use current layout rules. It falls back to a
+   LEGACY compatibility mode with different line-spacing and row-height behaviour. */
+assert(xml.indexOf('<w:cantSplit/>') !== -1, 'rows carry w:cantSplit');
+assert(count(xml, '<w:cantSplit/>') === 6,
+  'EVERY row carries w:cantSplit, or Word may break a badge across a page boundary',
+  count(xml, '<w:cantSplit/>') + ' of 6 rows');
+assert(xml.indexOf('<w:cantSplit/><w:trHeight') !== -1,
+  'w:cantSplit comes BEFORE w:trHeight, as the schema requires');
+
+/* (b) WordprocessingML is schema-ORDERED. Word responds to a misordered child by
+   dropping properties or offering to repair the file; LibreOffice silently accepts it.
+   These orders match the sample .docx that Word itself wrote. */
+function childOrder(src, parent) {
+  var m = src.match(new RegExp('<' + parent + '>([\\s\\S]*?)</' + parent + '>'));
+  if (!m) return null;
+  var kids = m[1].match(/<(w:[A-Za-z]+)/g) || [];
+  return kids.map(function (k) { return k.slice(1); });
+}
+var tblOrder = childOrder(xml, 'w:tblPr');
+assert(tblOrder && tblOrder[0] === 'w:tblW' && tblOrder[1] === 'w:tblLayout' &&
+       tblOrder.indexOf('w:tblCellMar') > tblOrder.indexOf('w:tblLayout') &&
+       tblOrder[tblOrder.length - 1] === 'w:tblLook',
+  'w:tblPr children are in schema order: tblW, tblLayout, tblCellMar, ..., tblLook',
+  tblOrder && tblOrder.join(' '));
+assert(xml.indexOf('<w:tblBorders>') === -1,
+  'no w:tblBorders: an unstyled table has none, and it was in the wrong position');
+assert(xml.indexOf('<w:tblLook') !== -1, 'w:tblLook is present, as Word writes it');
+
+var pOrder = childOrder(xml, 'w:pPr');
+var iSpacing = pOrder.indexOf('w:spacing');
+var iInd = pOrder.indexOf('w:ind');
+var iJc = pOrder.indexOf('w:jc');
+var iRPr = pOrder.indexOf('w:rPr');
+assert(iSpacing === 0 && iInd === 1 && iJc === 2 && iRPr === 3,
+  'w:pPr children are in schema order: spacing, ind, jc, rPr', pOrder.slice(0, 4).join(' '));
+assert(xml.indexOf('<w:contextualSpacing/>') === -1,
+  'no w:contextualSpacing: it is a list feature, and it sat AFTER w:jc in schema-invalid order');
+
+var tcOrder = childOrder(xml, 'w:tcPr');
+assert(tcOrder.indexOf('w:tcW') < tcOrder.indexOf('w:tcMar') &&
+       tcOrder.indexOf('w:tcMar') < tcOrder.indexOf('w:vAlign'),
+  'w:tcPr children are in schema order: tcW, tcMar, vAlign', tcOrder.join(' '));
+
+// =========================================================================
 head('4. escaping and hostile field values');
 // =========================================================================
 var nasty = [{
@@ -280,11 +334,34 @@ function checkPackage() {
   assert(out[0] === 'OK', 'the archive passes an independent CRC check');
   var names = out[1].split(',');
   ['[Content_Types].xml', '_rels/.rels', 'word/document.xml',
-   'word/_rels/document.xml.rels', 'word/styles.xml',
+   'word/_rels/document.xml.rels', 'word/styles.xml', 'word/settings.xml',
    'docProps/core.xml', 'docProps/app.xml'].forEach(function (need) {
     assert(names.indexOf(need) !== -1, 'the package contains ' + need);
   });
   assert(out[2] === 'XMLOK', 'every part parses as well-formed XML', out[2]);
+
+  /* The compat flag is the whole reason word/settings.xml exists here. Read it back out
+     of the package rather than trusting the string constant. */
+  var py2 = [
+    'import zipfile,sys,re',
+    'z=zipfile.ZipFile(sys.argv[1])',
+    's=z.read("word/settings.xml").decode("utf-8")',
+    'm=re.search(r\'compatibilityMode"[^>]*w:val="(\\d+)"\', s)',
+    'print(m.group(1) if m else "NONE")',
+    'ct=z.read("[Content_Types].xml").decode("utf-8")',
+    'print("settings" if "word/settings.xml" in ct else "NOTDECLARED")',
+    'r=z.read("word/_rels/document.xml.rels").decode("utf-8")',
+    'print("related" if "settings.xml" in r else "NOTRELATED")'
+  ].join('\n');
+  var py2Path = path.join(tmp, 'chk2.py');
+  fs.writeFileSync(py2Path, py2);
+  var o2 = child.execSync('python3 ' + JSON.stringify(py2Path) + ' ' + JSON.stringify(docxPath),
+    { encoding: 'utf8' }).split('\n');
+  assert(o2[0] === '15',
+    'word/settings.xml pins compatibilityMode 15 - without it Word uses LEGACY layout rules',
+    'got ' + o2[0]);
+  assert(o2[1] === 'settings', 'settings.xml is declared in [Content_Types].xml');
+  assert(o2[2] === 'related', 'settings.xml is related from document.xml');
 }
 
 function checkRender() {

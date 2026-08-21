@@ -166,7 +166,6 @@
     p += '<w:spacing w:before="0" w:after="0" w:line="' + lineTw + '" w:lineRule="exact"/>';
     p += '<w:ind w:left="' + indent + '" w:right="0" w:firstLine="0"/>';
     p += '<w:jc w:val="left"/>';
-    p += '<w:contextualSpacing/>';
     p += runProps(line);   // sizes the paragraph mark, which is what an empty line uses
     p += '</w:pPr>';
     if (line.text) {
@@ -195,28 +194,31 @@
            '</w:tcPr>' + paragraphsXml + '</w:tc>';
   }
 
-  var NO_BORDERS =
-    '<w:tblBorders>' +
-      '<w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>' +
-      '<w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>' +
-      '<w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>' +
-      '<w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>' +
-      '<w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>' +
-      '<w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>' +
-    '</w:tblBorders>';
-
+  /*
+   * The element ORDER here is not cosmetic. WordprocessingML is schema-ordered, and
+   * Word reacts to a misordered child by dropping properties or offering to "repair"
+   * the file - LibreOffice, by contrast, quietly accepts it, which is how a first
+   * version of this file passed every local check and still came out wrong in Word.
+   * The order below matches the sample .docx that Word itself wrote:
+   *     tblW, tblLayout, tblCellMar, tblLook
+   * No w:tblBorders: the sample has none, an unstyled table has no borders anyway, and
+   * placing it wrongly (it must precede tblLayout) was one of the ordering faults.
+   * w:tblW is 0/auto exactly as the sample has it - with a fixed layout the widths come
+   * from w:tblGrid, and this is the combination known to print correctly.
+   */
   function tableOpen(S) {
     var colW = twips(S.CELL_W);
     var grid = '';
     for (var c = 0; c < S.COLS; c++) grid += '<w:gridCol w:w="' + colW + '"/>';
     return '<w:tbl><w:tblPr>' +
-             '<w:tblW w:w="' + (colW * S.COLS) + '" w:type="dxa"/>' +
+             '<w:tblW w:w="0" w:type="auto"/>' +
              '<w:tblLayout w:type="fixed"/>' +
-             NO_BORDERS +
              '<w:tblCellMar>' +
                '<w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/>' +
                '<w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/>' +
              '</w:tblCellMar>' +
+             '<w:tblLook w:val="0000" w:firstRow="0" w:lastRow="0" w:firstColumn="0"' +
+                       ' w:lastColumn="0" w:noHBand="0" w:noVBand="0"/>' +
            '</w:tblPr><w:tblGrid>' + grid + '</w:tblGrid>';
   }
 
@@ -248,7 +250,7 @@
                      ' w:right="0"' +
                      ' w:bottom="0"' +
                      ' w:left="' + twips(preset.originX) + '"' +
-                     ' w:header="0" w:footer="0" w:gutter="0"/>' +
+                     ' w:header="720" w:footer="720" w:gutter="0"/>' +
              '<w:cols w:space="0"/>' +
              '<w:docGrid w:linePitch="360"/>' +
            '</w:sectPr>';
@@ -262,6 +264,7 @@
       '<Default Extension="xml" ContentType="application/xml"/>' +
       '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
       '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+      '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>' +
       '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
       '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>' +
     '</Types>';
@@ -276,6 +279,7 @@
   var DOC_RELS = XML_DECL +
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>' +
     '</Relationships>';
 
   /*
@@ -298,6 +302,33 @@
         '<w:rPr>' + rFonts() + '</w:rPr>' +
       '</w:style>' +
     '</w:styles>';
+
+  /*
+   * word/settings.xml, and it is the difference between a sheet that lays out and one
+   * that does not. Omitting this file was the bug: with no settings part, Word does not
+   * assume the current layout rules - it falls back to a LEGACY compatibility mode whose
+   * line-spacing and table row-height behaviour differ, which is what made rows grow and
+   * badges spill onto extra pages. LibreOffice ignores the difference entirely, which is
+   * why every local check passed while Word and Google Docs both came out wrong.
+   *
+   * w:val="15" is what the sample .docx carries (Word 2013+ layout). Child order follows
+   * the schema: defaultTabStop, characterSpacingControl, compat.
+   */
+  var SETTINGS = XML_DECL +
+    '<w:settings xmlns:w="' + W_NS + '">' +
+      '<w:defaultTabStop w:val="720"/>' +
+      '<w:characterSpacingControl w:val="doNotCompress"/>' +
+      '<w:compat>' +
+        '<w:compatSetting w:name="compatibilityMode"' +
+          ' w:uri="http://schemas.microsoft.com/office/word" w:val="15"/>' +
+        '<w:compatSetting w:name="overrideTableStyleFontSizeAndJustification"' +
+          ' w:uri="http://schemas.microsoft.com/office/word" w:val="1"/>' +
+        '<w:compatSetting w:name="enableOpenTypeFeatures"' +
+          ' w:uri="http://schemas.microsoft.com/office/word" w:val="1"/>' +
+        '<w:compatSetting w:name="doNotFlipMirrorIndents"' +
+          ' w:uri="http://schemas.microsoft.com/office/word" w:val="1"/>' +
+      '</w:compat>' +
+    '</w:settings>';
 
   var CORE = XML_DECL +
     '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"' +
@@ -357,7 +388,10 @@
     for (var p = 0; p < pageCount; p++) {
       xml += tableOpen(S);
       for (var row = 0; row < S.ROWS; row++) {
-        xml += '<w:tr><w:trPr><w:trHeight w:hRule="exact" w:val="' + twips(S.CELL_H) + '"/></w:trPr>';
+        /* w:cantSplit is what stops Word breaking a badge row across a page boundary.
+           The sample has it; omitting it is what made rows spill onto extra pages. */
+        xml += '<w:tr><w:trPr><w:cantSplit/>' +
+               '<w:trHeight w:hRule="exact" w:val="' + twips(S.CELL_H) + '"/></w:trPr>';
         for (var col = 0; col < S.COLS; col++) {
           var slot = row * S.COLS + col;
           var idx = p * S.PER_PAGE + slot;
@@ -397,6 +431,7 @@
         { name: 'word/document.xml', text: doc },
         { name: 'word/_rels/document.xml.rels', text: DOC_RELS },
         { name: 'word/styles.xml', text: STYLES },
+        { name: 'word/settings.xml', text: SETTINGS },
         { name: 'docProps/core.xml', text: CORE },
         { name: 'docProps/app.xml', text: APP }
       ]);
