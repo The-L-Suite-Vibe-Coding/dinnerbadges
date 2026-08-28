@@ -17,7 +17,8 @@
  * ---------------------------------------------------------------------------
  * LOGO RESERVE (BADGE_SPEC.md Addendum 2C)
  * ---------------------------------------------------------------------------
- * Pre-printed stock carries a logo in the bottom-right of every badge. The reserve
+ * Pre-printed stock carries a logo in one corner of every badge (bottom right by
+ * default; top right and top left are options since 2026-08-28). The reserve
  * is a KEEP-OUT region, cell-relative from the raw cell edge:
  *     x from (288 - wPt) to 288,  y from (216 - hPt) to 216
  * Nothing is drawn for it here — no rectangle, no outline, no placeholder. The logo
@@ -250,7 +251,8 @@
     return normalizeLogoPt({
       enabled: cfg.enabled,
       wPt: finiteOr(cfg.wIn, 1) * PT_PER_IN,
-      hPt: finiteOr(cfg.hIn, 1) * PT_PER_IN
+      hPt: finiteOr(cfg.hIn, 1) * PT_PER_IN,
+      pos: cfg.pos // resolved by BadgeSpec.logoPt(); junk lands on 'bottomRight'
     });
   }
 

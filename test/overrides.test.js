@@ -869,7 +869,7 @@ var def = OV.logo();
 eq(def.enabled, true, 'the logo reserve defaults to ON (flipped 2026-08-20 — her stock is pre-printed)');
 eq(def.wIn, 1, 'default width is 1 in');
 eq(def.hIn, 1, 'default height is 1 in');
-eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":72,"hPt":72},"align":"left"}',
+eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":72,"hPt":72,"pos":"bottomRight"},"align":"left"}',
   'the opts passed to layout() convert inches to points (1 in = 72 pt), and carry the alignment');
 
 // ---- round-trip -----------------------------------------------------------
@@ -880,7 +880,7 @@ eq(OV.logo().enabled, true, 'the toggle round-trips through the store');
 OV.setLogo({ wIn: 1.5, hIn: 0.75 });
 eq(OV.logo().wIn, 1.5, 'a decimal width round-trips');
 eq(OV.logo().hIn, 0.75, 'a decimal height round-trips');
-eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":108,"hPt":54},"align":"left"}',
+eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":108,"hPt":54,"pos":"bottomRight"},"align":"left"}',
   '1.5 x 0.75 in becomes 108 x 54 pt in the layout opts');
 eq(OV.LOGO_LIMITS.stepIn, 0.25, '0.25 in is the increment offered');
 
@@ -920,7 +920,7 @@ eq(OV.logo().wIn, 1.25, 'exponent notation is rejected rather than clamped to 4'
 // enabled reserve of 0 must not pretend to reserve anything.
 OV.setLogo({ enabled: true, wIn: 0, hIn: 1 });
 eq(OV.logo().wIn, 0, '0 in is in range and stored as 0');
-eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":0,"hPt":72},"align":"left"}', '0 in becomes 0 pt');
+eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":true,"wPt":0,"hPt":72,"pos":"bottomRight"},"align":"left"}', '0 in becomes 0 pt');
 OV.mount();
 panel = document.getElementById('override-panel');
 ok(
@@ -983,7 +983,7 @@ eq(
 );
 eq(
   seenOpts[0],
-  '{"logo":{"enabled":true,"wPt":72,"hPt":72},"align":"left"}',
+  '{"logo":{"enabled":true,"wPt":72,"hPt":72,"pos":"bottomRight"},"align":"left"}',
   'and it is the 1 in reserve converted to 72 pt, with the alignment alongside it'
 );
 
@@ -1304,9 +1304,41 @@ wIn.value = '99';
 wIn.dispatch('change');
 eq(OV.logo().wIn, 4, 'an out-of-range width is clamped');
 eq(wIn.value, '4', 'and the input shows the clamped value');
+// The corner selector (added 2026-08-28): bottom right / top right / top left,
+// with "not there at all" being the toggle above.
+wIn.value = '1'; // back to the 1 in default: the '99' clamp above left it at 4 in
+wIn.dispatch('change');
+hIn.value = '1';
+hIn.dispatch('change');
+var posSel = logoInput('logo-pos');
+ok(!!posSel, 'the corner selector exists');
+eq(posSel.tagName && posSel.tagName.toLowerCase(), 'select', 'the corner selector is a <select>');
+eq(posSel.childNodes.length, 3, 'it offers exactly the three corners');
+eq(posSel.childNodes.map(function (o) { return o.value; }).join(','),
+  'bottomRight,topRight,topLeft', 'in the spec\'s order');
+eq(posSel.value, 'bottomRight', 'and defaults to bottom right');
+posSel.value = 'topLeft';
+posSel.dispatch('change');
+eq(OV.logo().pos, 'topLeft', 'choosing a corner commits it to the store');
+eq(JSON.stringify(OV.logoOpts()),
+  '{"logo":{"enabled":true,"wPt":72,"hPt":72,"pos":"topLeft"},"align":"left"}',
+  'and the position reaches the layout opts');
+ok(/top left/.test(logoNote()), 'the note names the chosen corner', logoNote());
+ok(logoNote().indexOf('172.8') !== -1 && logoNote().indexOf('right of') !== -1,
+  'a 1 in top-left reserve recentres affected lines on 172.8 — to the RIGHT — and the note says so', logoNote());
+posSel.value = 'bottomRight';
+posSel.dispatch('change');
+eq(OV.logo().pos, 'bottomRight', 'switching back round-trips');
 toggle.checked = false;
 toggle.dispatch('change');
 eq(OV.logo().enabled, false, 'unticking turns it off again');
+eq(logoInput('logo-pos').disabled, true, 'the corner selector is disabled while the reserve is off');
+eq(OV.logo().pos, 'bottomRight', 'turning the reserve off keeps the stored corner');
+toggle.checked = true;
+toggle.dispatch('change');
+eq(logoInput('logo-pos').disabled, false, 'and re-enabling re-enables the selector');
+toggle.checked = false;
+toggle.dispatch('change');
 
 // Absent store support: read as OFF, warn, and disable rather than lie.
 var savedGet = Store.getLogo;
@@ -1327,7 +1359,7 @@ try {
 console.warn = realWarn2;
 ok(logoThrew === null, 'mounting without BadgeStore.getLogo() does not throw', logoThrew && logoThrew.message);
 eq(OV.logo().enabled, false, 'the reserve reads as OFF when the store cannot store it');
-eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":false,"wPt":72,"hPt":72},"align":"left"}',
+eq(JSON.stringify(OV.logoOpts()), '{"logo":{"enabled":false,"wPt":72,"hPt":72,"pos":"bottomRight"},"align":"left"}',
   'and layout() still receives a well-formed disabled reserve');
 ok(logoWarned >= 1, 'the missing store method produced a warning', 'warnings = ' + logoWarned);
 eq(logoInput('logo-enabled').disabled, true, 'the toggle is disabled rather than misleading');

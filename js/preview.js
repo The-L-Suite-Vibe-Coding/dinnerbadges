@@ -71,20 +71,22 @@
  *   DOM, they affect no geometry, and this module never touches the PDF path.
  * - Only the current page is built (6 badges), so typing stays cheap.
  *
- * LOGO RESERVE (ADDENDUM 2 section C)
- * Pre-printed stock carries a logo in each badge's bottom-right corner. The store
- * holds one global setting in INCHES; this module converts to points (x72) and
- * passes it to the engine on EVERY layout() call as the third argument:
- *     layout(attendee, override, { logo: { enabled, wPt, hPt } })
+ * LOGO RESERVE (ADDENDUM 2 section C; corner option added 2026-08-28)
+ * Pre-printed stock carries a logo in one corner of each badge — bottom right
+ * (the default), top right, or top left. The store holds one global setting in
+ * INCHES plus the corner; this module converts to points (x72) and passes it to
+ * the engine on EVERY layout() call as the third argument:
+ *     layout(attendee, override, { logo: { enabled, wPt, hPt, pos } })
  * The engine owns all the narrowing and re-centering that follows — this file only
  * threads the setting through and draws the reserved rectangle as another
  * screen-only guide (a faint tint plus a dashed outline, in the same toggle as the
  * cell guides). The guide is an out-of-flow <div>, never an SVG <text>, so it
  * cannot contribute geometry and cannot reach the PDF.
  *
- * Affected lines (usually company/title) sit 28.8 pt left of the name lines with a
- * 1 in block, i.e. centre 115.2 instead of 144. That is Julia's deliberate choice
- * ("narrow and recentre only the affected lines"), not a bug to correct here.
+ * Affected lines (usually company/title for the default bottom-right corner) sit
+ * 28.8 pt toward the far side of the name lines with a 1 in block, i.e. centre
+ * 115.2 instead of 144 (172.8 for the top-left mirror). That is Julia's deliberate
+ * choice ("narrow and recentre only the affected lines"), not a bug to correct here.
  *
  * TEXT ALIGNMENT
  * Sheet-wide, 'left' (default) or 'center', read from BadgeStore.getAlign() and
@@ -339,7 +341,7 @@
     var S = window.BadgeStore;
     if (!S || typeof S.getLogo !== 'function') {
       warnOnce('logo', 'BadgeStore.getLogo() is not available — treating the ' +
-        'bottom-right logo reserve as OFF.');
+        'corner logo reserve as OFF.');
       return off;
     }
     var cfg;
@@ -360,8 +362,22 @@
     return {
       enabled: cfg.enabled === true,
       wPt: inchesToPt(cfg.wIn),
-      hPt: inchesToPt(cfg.hIn)
+      hPt: inchesToPt(cfg.hIn),
+      pos: normalizeLogoPos(cfg.pos)
     };
+  }
+
+  /**
+   * Coerce the reserve's corner to a known value. BadgeSpec.logoPosKey() is the
+   * authority when spec.js is loaded; the local list is only the fallback, and
+   * either way junk lands on 'bottomRight' — the corner every sheet printed with
+   * before the position option existed.
+   */
+  function normalizeLogoPos(v) {
+    var S = window.BadgeSpec;
+    if (S && typeof S.logoPosKey === 'function') return S.logoPosKey(v);
+    var list = ['bottomRight', 'topRight', 'topLeft'];
+    return list.indexOf(v) !== -1 ? v : 'bottomRight';
   }
 
   /**
@@ -379,7 +395,12 @@
       return isFinite(n) && n >= 0 ? n : LOGO_DEFAULT_IN * PT_PER_IN;
     }
     return {
-      logo: { enabled: l.enabled === true, wPt: size(l.wPt), hPt: size(l.hPt) },
+      logo: {
+        enabled: l.enabled === true,
+        wPt: size(l.wPt),
+        hPt: size(l.hPt),
+        pos: normalizeLogoPos(l.pos)
+      },
       align: align === undefined ? alignMode() : normalizeAlign(align)
     };
   }
@@ -398,7 +419,18 @@
     var w = Math.min(Math.max(Number(l.wPt) || 0, 0), cellW);
     var h = Math.min(Math.max(Number(l.hPt) || 0, 0), cellH);
     if (w <= 0 || h <= 0) return null;
-    return { x0: cellW - w, y0: cellH - h, x1: cellW, y1: cellH, wPt: w, hPt: h };
+    var pos = normalizeLogoPos(l.pos);
+    var right = pos !== 'topLeft';
+    var bottom = pos === 'bottomRight';
+    return {
+      x0: right ? cellW - w : 0,
+      y0: bottom ? cellH - h : 0,
+      x1: right ? cellW : w,
+      y1: bottom ? cellH : h,
+      wPt: w,
+      hPt: h,
+      pos: pos
+    };
   }
 
   /* ------------------------------------------------------- text alignment */
@@ -622,8 +654,10 @@
       '  outline-offset: -1px; }',
       /* Logo reserve: same screen-guide treatment. position:absolute + a zero
          contribution to flow means it can never move a glyph; pointer-events:none
-         means it can never intercept a click. Hidden unless guides are on. */
-      '.bp-logo-guide { position: absolute; right: 0; bottom: 0;',
+         means it can never intercept a click. Hidden unless guides are on.
+         Its left/top are set inline per cell from the reserve rect, so the guide
+         follows the corner setting instead of being pinned to one corner here. */
+      '.bp-logo-guide { position: absolute;',
       '  display: none; pointer-events: none; box-sizing: border-box;',
       '  background: rgba(120,120,140,0.09);',
       '  border: 1px dashed rgba(120,120,140,0.55); }',
@@ -671,8 +705,8 @@
   }
 
   /**
-   * The logo reserve, drawn as a screen-only guide: an out-of-flow <div> pinned to
-   * the cell's bottom-right corner, a faint tint with a dashed edge. It is not an
+   * The logo reserve, drawn as a screen-only guide: an out-of-flow <div> placed at
+   * the reserve's corner of the cell, a faint tint with a dashed edge. It is not an
    * SVG <text>, it is not inside the <svg> at all, and it is position:absolute, so
    * it contributes exactly zero to the geometry of anything. Visibility rides the
    * same `.bp-guides-on` toggle as the cell outlines. It lives only in this
@@ -681,9 +715,12 @@
   function paintLogoGuide(reserve) {
     var g = document.createElement('div');
     g.className = 'bp-logo-guide';
+    g.style.left = px(reserve.x0);
+    g.style.top = px(reserve.y0);
     g.style.width = px(reserve.wPt);
     g.style.height = px(reserve.hPt);
     g.setAttribute('data-logo-guide', '1');
+    g.setAttribute('data-logo-pos', String(reserve.pos || 'bottomRight'));
     g.setAttribute('data-logo-w-pt', String(reserve.wPt));
     g.setAttribute('data-logo-h-pt', String(reserve.hPt));
     g.setAttribute('data-reserve-x0', String(reserve.x0));
@@ -755,6 +792,7 @@
       sheet.setAttribute('data-logo-enabled', '1');
       sheet.setAttribute('data-logo-w-pt', String(opts.logo.wPt));
       sheet.setAttribute('data-logo-h-pt', String(opts.logo.hPt));
+      sheet.setAttribute('data-logo-pos', String(opts.logo.pos || 'bottomRight'));
     }
 
     var per = perPage();
@@ -941,7 +979,7 @@
       bus.on('data:changed', schedule);
       bus.on('override:changed', schedule);
       bus.on('page:changed', schedule);
-      bus.on('logo:changed', schedule);  // bottom-right logo reserve toggled/resized
+      bus.on('logo:changed', schedule);  // logo reserve toggled/resized/moved
       bus.on('sheet:changed', schedule); // sample-top-left <-> Avery grid placement
       bus.on('align:changed', schedule);  // left <-> center text alignment
     } else {

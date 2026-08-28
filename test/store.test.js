@@ -896,14 +896,14 @@ var LOGO_KEY = 'lsuite.badges.logo';
 /* ON by default since 2026-08-20 (Julia's stock is pre-printed with a corner logo).
    The "writes nothing until something changes it" property below is unaffected: the
    default lives in code, not in storage, so a fresh browser still has no logo key. */
-var LOGO_DEFAULTS = { enabled: true, wIn: 1, hIn: 1 };
+var LOGO_DEFAULTS = { enabled: true, wIn: 1, hIn: 1, pos: 'bottomRight' };
 
 /* --- (a) defaults when the key is absent --------------------------------------- */
 shim = makeShim();
 globalThis.localStorage = shim;
 var LA = freshStore();
 LA.init();
-deepEq(LA.getLogo(), LOGO_DEFAULTS, 'defaults to {enabled:true, wIn:1, hIn:1} with no stored key');
+deepEq(LA.getLogo(), LOGO_DEFAULTS, 'defaults to {enabled:true, wIn:1, hIn:1, pos:bottomRight} with no stored key');
 eq(typeof LA.getLogo().enabled, 'boolean', 'enabled is a real boolean, not truthy');
 eq(shim.getItem(LOGO_KEY), null, 'no logo key is written until something changes it');
 deepEq(prefixedKeys(shim), [], 'the default reserve writes nothing at all — the default is code, not storage');
@@ -916,42 +916,48 @@ deepEq(prefixedKeys(shim), ['lsuite.badges.attendees'], 'reading the default nev
 
 /* --- (b) round-trip through a simulated reload --------------------------------- */
 LA.setLogo({ enabled: true, wIn: 1.5, hIn: 0.75 });
-deepEq(LA.getLogo(), { enabled: true, wIn: 1.5, hIn: 0.75 }, 'setLogo applies a full config');
+deepEq(LA.getLogo(), { enabled: true, wIn: 1.5, hIn: 0.75, pos: 'bottomRight' }, 'setLogo applies a full config');
 ok(prefixedKeys(shim).indexOf(LOGO_KEY) !== -1, 'the logo key is now on disk');
-deepEq(JSON.parse(shim._raw(LOGO_KEY)), { enabled: true, wIn: 1.5, hIn: 0.75 },
-  'stored payload is exactly {enabled, wIn, hIn}');
+deepEq(JSON.parse(shim._raw(LOGO_KEY)), { enabled: true, wIn: 1.5, hIn: 0.75, pos: 'bottomRight' },
+  'stored payload is exactly {enabled, wIn, hIn, pos}');
 var storedLogo = JSON.parse(shim._raw(LOGO_KEY));
 ok(storedLogo.wIn === 1.5 && storedLogo.wIn !== 108,
   'stored in INCHES, not points (1.5 in, not 108 pt)');
 var LB = freshStore(); // reload
 LB.init();
-deepEq(LB.getLogo(), { enabled: true, wIn: 1.5, hIn: 0.75 }, 'logo config survives the reload identically');
+deepEq(LB.getLogo(), { enabled: true, wIn: 1.5, hIn: 0.75, pos: 'bottomRight' }, 'logo config survives the reload identically');
 
 /* --- (c) partial patches must not wipe untouched fields ------------------------ */
 LB.setLogo({ enabled: false });
-deepEq(LB.getLogo(), { enabled: false, wIn: 1.5, hIn: 0.75 },
+deepEq(LB.getLogo(), { enabled: false, wIn: 1.5, hIn: 0.75, pos: 'bottomRight' },
   'setLogo({enabled:false}) keeps wIn/hIn');
 LB.setLogo({ wIn: 2 });
-deepEq(LB.getLogo(), { enabled: false, wIn: 2, hIn: 0.75 },
+deepEq(LB.getLogo(), { enabled: false, wIn: 2, hIn: 0.75, pos: 'bottomRight' },
   'setLogo({wIn:2}) keeps enabled/hIn');
 LB.setLogo({ hIn: 1.25 });
-deepEq(LB.getLogo(), { enabled: false, wIn: 2, hIn: 1.25 },
+deepEq(LB.getLogo(), { enabled: false, wIn: 2, hIn: 1.25, pos: 'bottomRight' },
   'setLogo({hIn:1.25}) keeps enabled/wIn');
 LB.setLogo({ enabled: true });
-deepEq(LB.getLogo(), { enabled: true, wIn: 2, hIn: 1.25 },
+deepEq(LB.getLogo(), { enabled: true, wIn: 2, hIn: 1.25, pos: 'bottomRight' },
   'setLogo({enabled:true}) keeps the current size');
-deepEq(LB.setLogo({ wIn: 2.5 }), { enabled: true, wIn: 2.5, hIn: 1.25 },
+deepEq(LB.setLogo({ wIn: 2.5 }), { enabled: true, wIn: 2.5, hIn: 1.25, pos: 'bottomRight' },
   'setLogo returns the resulting config');
+LB.setLogo({ pos: 'topLeft' });
+deepEq(LB.getLogo(), { enabled: true, wIn: 2.5, hIn: 1.25, pos: 'topLeft' },
+  'setLogo({pos:topLeft}) keeps enabled and both sizes');
+LB.setLogo({ wIn: 2 });
+eq(LB.getLogo().pos, 'topLeft', 'and a later size patch keeps the position');
+LB.setLogo({ pos: 'bottomRight' }); // back to the baseline for the sections below
 
 /* --- (d) clamping at both ends ------------------------------------------------- */
 LB.setLogo({ wIn: -5, hIn: -0.0001 });
-deepEq(LB.getLogo(), { enabled: true, wIn: 0, hIn: 0 }, 'negative inches clamp UP to 0');
+deepEq(LB.getLogo(), { enabled: true, wIn: 0, hIn: 0, pos: 'bottomRight' }, 'negative inches clamp UP to 0');
 LB.setLogo({ wIn: 99, hIn: 4.0001 });
-deepEq(LB.getLogo(), { enabled: true, wIn: 4, hIn: 4 }, 'oversize inches clamp DOWN to 4');
+deepEq(LB.getLogo(), { enabled: true, wIn: 4, hIn: 4, pos: 'bottomRight' }, 'oversize inches clamp DOWN to 4');
 LB.setLogo({ wIn: 0, hIn: 4 });
-deepEq(LB.getLogo(), { enabled: true, wIn: 0, hIn: 4 }, 'the exact bounds 0 and 4 are kept as-is');
+deepEq(LB.getLogo(), { enabled: true, wIn: 0, hIn: 4, pos: 'bottomRight' }, 'the exact bounds 0 and 4 are kept as-is');
 LB.setLogo({ wIn: '1.5', hIn: ' 2.25 ' });
-deepEq(LB.getLogo(), { enabled: true, wIn: 1.5, hIn: 2.25 },
+deepEq(LB.getLogo(), { enabled: true, wIn: 1.5, hIn: 2.25, pos: 'bottomRight' },
   'numeric strings parse (number inputs hand over strings), whitespace tolerated');
 LB.setLogo({ wIn: '1e3' });
 eq(LB.getLogo().wIn, 4, 'exponential notation still clamps');
@@ -1106,7 +1112,7 @@ eq(busLog.length, 0, 'setting the reserve to the value it already has emits noth
 LF.setLogo({ enabled: false });
 eq(busLog.length, 1, 'one bus event for one real change');
 eq(busLog[0].evt, 'logo:changed', 'the event name is logo:changed');
-deepEq(busLog[0].payload, { logo: { enabled: false, wIn: 1, hIn: 1 } },
+deepEq(busLog[0].payload, { logo: { enabled: false, wIn: 1, hIn: 1, pos: 'bottomRight' } },
   'the payload carries the full resulting config');
 LF.setLogo({ enabled: false }); // identical
 eq(busLog.length, 1, 'no bus event when nothing changed');
@@ -1118,7 +1124,7 @@ eq(LF.getLogo().wIn, 2, 'the emitted payload is a copy, not live state');
 var got1 = LF.getLogo();
 got1.enabled = true;   // deliberately the OPPOSITE of the stored value, so the
 got1.wIn = 42;         // assertion below fails if the copy is not a copy
-deepEq(LF.getLogo(), { enabled: false, wIn: 2, hIn: 1 }, 'getLogo() returns a copy too');
+deepEq(LF.getLogo(), { enabled: false, wIn: 2, hIn: 1, pos: 'bottomRight' }, 'getLogo() returns a copy too');
 
 /* --- (l) clearAll() sweeps lsuite.badges.logo -------------------------------- */
 LF.setAttendees([{ id: 'lg2', first: 'Evanthia', last: 'Roskilly', title: 'DGC', company: 'Pemberton Glass' }]);
@@ -1153,7 +1159,7 @@ globalThis.localStorage = shim;
 var LH = freshStore();
 LH.init();
 var shape = LH.getLogo();
-deepEq(Object.keys(shape).sort(), ['enabled', 'hIn', 'wIn'], 'getLogo() returns exactly {enabled, wIn, hIn}');
+deepEq(Object.keys(shape).sort(), ['enabled', 'hIn', 'pos', 'wIn'], 'getLogo() returns exactly {enabled, wIn, hIn, pos}');
 eq(typeof LH.getLogo, 'function', 'getLogo is exposed on window.BadgeStore');
 eq(typeof LH.setLogo, 'function', 'setLogo is exposed on window.BadgeStore');
 eq(LH.KEYS.logo, LOGO_KEY, 'KEYS.logo names the storage key');
@@ -1161,8 +1167,36 @@ deepEq(LH.LOGO_LIMITS, { minIn: 0, maxIn: 4, defaults: LOGO_DEFAULTS },
   'LOGO_LIMITS publishes the clamp range and defaults for the UI');
 // points conversion is the caller's job — prove the store never does it
 LH.setLogo({ enabled: true, wIn: 1, hIn: 1 });
-deepEq(LH.getLogo(), { enabled: true, wIn: 1, hIn: 1 },
+deepEq(LH.getLogo(), { enabled: true, wIn: 1, hIn: 1, pos: 'bottomRight' },
   '1 in stays 1 (the x72 to 72 pt is the caller\'s conversion, per ADDENDUM 2 C)');
+
+/* --- (n) the corner position (added 2026-08-28) ------------------------------- */
+['bottomRight', 'topRight', 'topLeft'].forEach(function (p) {
+  LH.setLogo({ pos: p });
+  eq(LH.getLogo().pos, p, 'setLogo({pos:"' + p + '"}) round-trips');
+});
+LH.setLogo({ pos: 'topLeft' });
+var LH2 = freshStore(); // reload
+LH2.init();
+eq(LH2.getLogo().pos, 'topLeft', 'the position survives a simulated reload');
+// junk keeps the CURRENT position, exactly like junk inches keep the current size
+[null, undefined, 42, {}, [], true, 'bottomLeft', 'TOPLEFT', ' topLeft ', ''].forEach(function (v) {
+  noThrow(function () { LH2.setLogo({ pos: v }); },
+    'setLogo({pos:' + (typeof v === 'string' ? JSON.stringify(v) : String(v)) + '}) does not throw');
+  eq(LH2.getLogo().pos, 'topLeft', 'and the stored position is untouched');
+});
+// a config saved BEFORE the option existed simply lacks the key -> default corner
+shim._put(LOGO_KEY, '{"enabled":true,"wIn":2,"hIn":1}');
+var LH3 = freshStore();
+LH3.init();
+deepEq(LH3.getLogo(), { enabled: true, wIn: 2, hIn: 1, pos: 'bottomRight' },
+  'a pre-position stored config reads back with pos:bottomRight — what it always printed as');
+// a corrupt pos in storage lands on the default, keeping the sizes
+shim._put(LOGO_KEY, '{"enabled":true,"wIn":2,"hIn":1,"pos":"underneath"}');
+var LH4 = freshStore();
+LH4.init();
+deepEq(LH4.getLogo(), { enabled: true, wIn: 2, hIn: 1, pos: 'bottomRight' },
+  'an unrecognised stored pos falls back to bottomRight without disturbing the sizes');
 
 /* ================================================================================
  * 19. REGRESSION: hostile attendee ids must not reach Object.prototype.
@@ -1650,7 +1684,7 @@ AN.setAlign('center');
 AN.setSheetPreset('avery');
 AN.setLogo({ enabled: true, wIn: 2 });
 deepEq({ a: AN.getAlign(), s: AN.getSheetPreset(), l: AN.getLogo() },
-  { a: 'center', s: 'avery', l: { enabled: true, wIn: 2, hIn: 1 } },
+  { a: 'center', s: 'avery', l: { enabled: true, wIn: 2, hIn: 1, pos: 'bottomRight' } },
   'alignment, sheet preset and logo reserve do not interfere with each other');
 AN.setAlign('left');
 deepEq({ s: AN.getSheetPreset(), l: AN.getLogo().wIn }, { s: 'avery', l: 2 },

@@ -10,9 +10,12 @@
  *   lsuite.badges.align       JSON string — 'left' (default) or 'center'. Sheet-wide.
  *   lsuite.badges.sheetPreset JSON string — 'sampleTopLeft' (grid origin 0,0) or 'avery'
  *                             (origin 18,72 pt = 0.25 in left, 1 in top). ADDENDUM 2.
- *   lsuite.badges.logo        JSON object { enabled, wIn, hIn } — the bottom-right logo
+ *   lsuite.badges.logo        JSON object { enabled, wIn, hIn, pos } — the corner logo
  *                             reserve block (BADGE_SPEC ADDENDUM 2 C). Stored in INCHES;
- *                             converting to points (x72) is the CALLER's job.
+ *                             converting to points (x72) is the CALLER's job. `pos` is
+ *                             'bottomRight' (default) | 'topRight' | 'topLeft'; a config
+ *                             saved before the position option simply lacks the key and
+ *                             reads back as 'bottomRight', which is what it printed as.
  *
  * PRIVACY: localStorage only. No cookies, no analytics, no telemetry, no network of any
  * kind. This file calls exactly two host APIs — window.localStorage and console — and
@@ -52,16 +55,21 @@
   var NUDGE_FIELDS = ['first', 'last', 'company', 'title'];
 
   /* Logo reserve block. ON by default (Julia, 2026-08-20): the stock she prints on has a
-     pre-printed logo in each badge's bottom-right corner, so reserving that corner is the
+     pre-printed logo in a corner of each badge, so reserving that corner is the
      normal case. BadgeSpec.LOGO_DEFAULT is the authority and is read at call time by
      logoDefault() below; this copy is only the fallback for a build where spec.js failed
      to load, so the two can no longer drift.
      INCHES, never points — 1 in is 72 pt, and that conversion belongs to the caller.
      NOTE: a browser that already saved `lsuite.badges.logo` keeps whatever it saved; the
      default only applies to storage that has never been written. */
-  var LOGO_FALLBACK = { enabled: true, wIn: 1, hIn: 1 };
+  var LOGO_FALLBACK = { enabled: true, wIn: 1, hIn: 1, pos: 'bottomRight' };
   var LOGO_MIN_IN_FALLBACK = 0;
   var LOGO_MAX_IN_FALLBACK = 4; // a 4 in reserve already eats the whole 4 in cell width
+  /* Which corner the reserve occupies (added 2026-08-28). BadgeSpec.LOGO_POSITIONS /
+     LOGO_POSITION_DEFAULT are the authority, read at call time via the same enumKeys()
+     machinery the alignment and sheet preset use; these are only the fallback. */
+  var LOGO_POS_KEYS_FALLBACK = ['bottomRight', 'topRight', 'topLeft'];
+  var LOGO_POS_DEFAULT_FALLBACK = 'bottomRight';
 
   /* Read from BadgeSpec at call time, exactly like enumKeys()/enumDefault() do for the
      alignment and sheet-preset lists. The constants above are the fallback for a build
@@ -71,9 +79,33 @@
     var S = window.BadgeSpec;
     var d = S && S.LOGO_DEFAULT;
     if (isPlainObject(d) && typeof d.wIn === 'number' && typeof d.hIn === 'number') {
-      return { enabled: d.enabled === true, wIn: d.wIn, hIn: d.hIn };
+      return {
+        enabled: d.enabled === true,
+        wIn: d.wIn,
+        hIn: d.hIn,
+        pos: normalizeLogoPos(d.pos, logoPosDefault())
+      };
     }
-    return { enabled: LOGO_FALLBACK.enabled, wIn: LOGO_FALLBACK.wIn, hIn: LOGO_FALLBACK.hIn };
+    return {
+      enabled: LOGO_FALLBACK.enabled,
+      wIn: LOGO_FALLBACK.wIn,
+      hIn: LOGO_FALLBACK.hIn,
+      pos: LOGO_FALLBACK.pos
+    };
+  }
+
+  function logoPosDefault() {
+    return enumDefault('LOGO_POSITIONS', 'LOGO_POSITION_DEFAULT',
+      LOGO_POS_KEYS_FALLBACK, LOGO_POS_DEFAULT_FALLBACK);
+  }
+
+  /* Same rule as normalizeInches: junk keeps the caller's base value (the CURRENT
+     position when patching, the default when loading), never a guess. Strings only —
+     nothing read from storage is ever implicitly ToString'd. */
+  function normalizeLogoPos(raw, fallback) {
+    if (typeof raw !== 'string') return fallback;
+    var t = raw.trim();
+    return enumKeys('LOGO_POSITIONS', LOGO_POS_KEYS_FALLBACK).indexOf(t) !== -1 ? t : fallback;
   }
   function logoMinIn() {
     var S = window.BadgeSpec;
@@ -116,7 +148,7 @@
      Every read below is additionally hasOwn-guarded. */
   var overrides = Object.create(null); // id -> nudge object (only for ids that exist)
   var pageIndex = 0;
-  var logo = { enabled: true, wIn: 1, hIn: 1 };
+  var logo = { enabled: true, wIn: 1, hIn: 1, pos: LOGO_POS_DEFAULT_FALLBACK };
   var sheetPreset = SHEET_DEFAULT_FALLBACK;
   var align = ALIGN_DEFAULT_FALLBACK;
   var loaded = false;           // has load() run (set in a finally — see load())
@@ -398,7 +430,8 @@
     var out = {
       enabled: normalizeEnabled(b.enabled, def.enabled),
       wIn: normalizeInches(b.wIn, def.wIn),
-      hIn: normalizeInches(b.hIn, def.hIn)
+      hIn: normalizeInches(b.hIn, def.hIn),
+      pos: normalizeLogoPos(b.pos, def.pos)
     };
     if (!isPlainObject(raw)) return out; // '{not json', a number, an array, a deep array
     if (Object.prototype.hasOwnProperty.call(raw, 'enabled')) {
@@ -409,6 +442,9 @@
     }
     if (Object.prototype.hasOwnProperty.call(raw, 'hIn')) {
       out.hIn = normalizeInches(raw.hIn, out.hIn);
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'pos')) {
+      out.pos = normalizeLogoPos(raw.pos, out.pos);
     }
     return out;
   }
@@ -530,7 +566,7 @@
   }
 
   function copyLogo(l) {
-    return { enabled: l.enabled === true, wIn: l.wIn, hIn: l.hIn };
+    return { enabled: l.enabled === true, wIn: l.wIn, hIn: l.hIn, pos: l.pos };
   }
 
   function indexOfId(id) {
@@ -556,7 +592,7 @@
   }
 
   function sameLogo(a, b) {
-    return a.enabled === b.enabled && a.wIn === b.wIn && a.hIn === b.hIn;
+    return a.enabled === b.enabled && a.wIn === b.wIn && a.hIn === b.hIn && a.pos === b.pos;
   }
 
   function sameOverride(a, b) {
@@ -1156,7 +1192,7 @@
       attendees = [];
       overrides = Object.create(null);
       pageIndex = 0;
-      logo = normalizeLogo(null, logoDefault()); // back to {enabled:true, wIn:1, hIn:1}
+      logo = normalizeLogo(null, logoDefault()); // back to {enabled:true, wIn:1, hIn:1, pos:'bottomRight'}
       sheetPreset = sheetPresetDefault();
       align = alignDefault(); // back to 'left'
       loaded = true; // state is authoritative now; don't re-read on next access

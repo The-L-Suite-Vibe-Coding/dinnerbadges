@@ -1601,7 +1601,10 @@ function checkSourceHygiene() {
     { enabled: true, wPt: NaN, hPt: NaN },
     { enabled: true, wPt: 0, hPt: 72 },
     { enabled: true, wPt: 9999, hPt: 9999 },
-    { enabled: true, wPt: Infinity, hPt: 72 }
+    { enabled: true, wPt: Infinity, hPt: 72 },
+    { enabled: true, wPt: 72, hPt: 72, pos: 'topRight' },
+    { enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' },
+    { enabled: true, wPt: 72, hPt: 72, pos: 'underneath' }
   ].forEach(function (cfg) {
     assert(
       JSON.stringify(BadgePdf.resolveLogo({ logo: cfg })) === JSON.stringify(S.logoPt(cfg)),

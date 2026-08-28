@@ -62,18 +62,26 @@
     // extra line. That is the intended behaviour, not an overflow.
     MAX_LINES: { company: 2, title: 3 }, // first/last never wrap
 
-    // ---- bottom-right logo reserve (pre-printed stock) -------------------
+    // ---- corner logo reserve (pre-printed stock) --------------------------
     // One global setting for every badge; ON by default (Julia, 2026-08-20) because
-    // the stock she prints on carries a pre-printed logo in every badge's
-    // bottom-right corner, so reserving that corner is the normal case, not the
+    // the stock she prints on carries a pre-printed logo in a corner of every
+    // badge, so reserving that corner is the normal case, not the
     // exception. Turning it OFF restores the pre-feature geometry exactly. Sizes are kept in INCHES here (and in
     // BadgeStore); converting to points is the caller's job — BadgeLayout takes
     // wPt/hPt. The reserved rectangle is measured from the RAW cell edge, not
     // from inside the 14.4 pt inset, because the logo is printed at the stock's
-    // real corner: x from (CELL_W - wPt) to CELL_W, y from (CELL_H - hPt) to CELL_H.
-    LOGO_DEFAULT: { enabled: true, wIn: 1, hIn: 1 },
+    // real corner. Which corner is `pos` (added 2026-08-28 at Julia's request):
+    //   bottomRight  x in [CELL_W - wPt, CELL_W], y in [CELL_H - hPt, CELL_H]
+    //   topRight     x in [CELL_W - wPt, CELL_W], y in [0, hPt]
+    //   topLeft      x in [0, wPt],               y in [0, hPt]
+    // 'bottomRight' is the default and reproduces the pre-`pos` numbers exactly,
+    // so stored configs from before the option keep printing what they printed.
+    // "No reserve at all" is `enabled: false`, not a fourth position.
+    LOGO_DEFAULT: { enabled: true, wIn: 1, hIn: 1, pos: 'bottomRight' },
     LOGO_MIN_IN: 0,
     LOGO_MAX_IN: 4,
+    LOGO_POSITIONS: ['bottomRight', 'topRight', 'topLeft'],
+    LOGO_POSITION_DEFAULT: 'bottomRight',
 
     // ---- horizontal alignment -------------------------------------------
     // Sheet-wide, not per badge. LEFT is the default: all four lines flush to a
@@ -142,6 +150,20 @@
     },
 
     /**
+     * Resolve a logo-reserve position to a valid value, falling back to
+     * LOGO_POSITION_DEFAULT. Exact match against LOGO_POSITIONS, same rule as
+     * alignKey(): 'TOPLEFT' is simply unrecognized and lands on the default —
+     * which, being 'bottomRight', means a stale or junk value in storage prints
+     * the sheet that has always printed.
+     */
+    logoPosKey: function (pos) {
+      for (var i = 0; i < BadgeSpec.LOGO_POSITIONS.length; i++) {
+        if (pos === BadgeSpec.LOGO_POSITIONS[i]) return pos;
+      }
+      return BadgeSpec.LOGO_POSITION_DEFAULT;
+    },
+
+    /**
      * Resolve a sheet-wide alignment to a valid value, falling back to
      * ALIGN_DEFAULT. Exact match against ALIGNS — deliberately not case-normalized,
      * so 'LEFT' is simply unrecognized and lands on the default.
@@ -194,6 +216,9 @@
      *       which is the worse failure.
      *   oversize            -> clamped to LOGO_MAX_IN and to the cell
      *   zero                -> off (a zero-area reserve reserves nothing)
+     *   pos                 -> resolved through logoPosKey(), so junk lands on
+     *                          'bottomRight' (the position every sheet printed
+     *                          with before the option existed)
      */
     logoPt: function (cfg) {
       var off = { enabled: false, wPt: 0, hPt: 0 };
@@ -206,7 +231,7 @@
       w = Math.min(w, maxPt, CELL_W);
       h = Math.min(h, maxPt, CELL_H);
       if (w <= 0 || h <= 0) return off;
-      return { enabled: true, wPt: w, hPt: h };
+      return { enabled: true, wPt: w, hPt: h, pos: BadgeSpec.logoPosKey(cfg.pos) };
     },
 
     /** advance height of one line at `sizePt`, in points. */
@@ -222,6 +247,7 @@
   Object.freeze(BadgeSpec.STYLES);
   Object.freeze(BadgeSpec.MAX_LINES);
   Object.freeze(BadgeSpec.LOGO_DEFAULT);
+  Object.freeze(BadgeSpec.LOGO_POSITIONS);
   Object.freeze(BadgeSpec.ALIGNS);
   Object.freeze(BadgeSpec.SHEET_PRESETS.sampleTopLeft);
   Object.freeze(BadgeSpec.SHEET_PRESETS.avery);

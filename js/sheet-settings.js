@@ -1,9 +1,10 @@
 /*
  * js/sheet-settings.js - window.BadgeSheetSettings
  *
- * The SHEET-WIDE settings panel: text alignment, the bottom-right logo reserve, and
- * which sheet layout (grid origin) the badges are printed on. One setting each, for
- * every badge on every page - nothing here is ever per attendee.
+ * The SHEET-WIDE settings panel: text alignment, the corner logo reserve (on/off,
+ * which corner, and its size), and which sheet layout (grid origin) the badges are
+ * printed on. One setting each, for every badge on every page - nothing here is
+ * ever per attendee.
  *
  * WHY THIS IS ITS OWN FILE. All of it used to live inside js/overrides.js, whose
  * header describes it as "per-badge font-size override UI". That file was two modules
@@ -110,8 +111,8 @@
   var unsubscribe = null;
 
   /* ---- logo reserve (BADGE_SPEC.md addendum 2C) ---------------------------
-     SHEET-WIDE, not per badge: one setting reserves the bottom-right corner of
-     EVERY cell so text never prints over pre-printed logo stock. The store keeps
+     SHEET-WIDE, not per badge: one setting reserves a corner (`pos`) of EVERY
+     cell so text never prints over pre-printed logo stock. The store keeps
      inches; converting to points is the caller's job, so it is done here. */
   var PT_PER_IN = 72;
   var LOGO_STEP_IN = 0.25; // UI-only: the number input's arrow increment, no spec counterpart
@@ -120,7 +121,41 @@
      accessors below, so the panel's clamp can no longer drift from the engine's. */
   var LOGO_MIN_IN_FALLBACK = 0;
   var LOGO_MAX_IN_FALLBACK = 4;
-  var LOGO_FALLBACK = { enabled: true, wIn: 1, hIn: 1 }; // ON by default
+  var LOGO_FALLBACK = { enabled: true, wIn: 1, hIn: 1, pos: 'bottomRight' }; // ON by default
+  /* Which corner the reserve occupies. BadgeSpec.LOGO_POSITIONS / LOGO_POSITION_DEFAULT
+     are the authority, read at call time; only the human-readable labels live here
+     (the spec carries no copy for them), exactly like ALIGN_LABELS below. */
+  var LOGO_POS_FALLBACK = ['bottomRight', 'topRight', 'topLeft'];
+  var LOGO_POS_DEFAULT_FALLBACK = 'bottomRight';
+  var LOGO_POS_LABELS = {
+    bottomRight: 'Bottom right',
+    topRight: 'Top right',
+    topLeft: 'Top left'
+  };
+
+  function logoPositions() {
+    var S = window.BadgeSpec;
+    var raw = S && S.LOGO_POSITIONS;
+    var out = [];
+    if (Array.isArray(raw)) {
+      for (var i = 0; i < raw.length; i++) {
+        if (typeof raw[i] === 'string' && raw[i] && out.indexOf(raw[i]) === -1) out.push(raw[i]);
+      }
+    }
+    return out.length ? out : LOGO_POS_FALLBACK.slice();
+  }
+
+  function logoPosDefault() {
+    var S = window.BadgeSpec;
+    var def = S && S.LOGO_POSITION_DEFAULT;
+    if (typeof def === 'string' && logoPositions().indexOf(def) !== -1) return def;
+    return LOGO_POS_DEFAULT_FALLBACK;
+  }
+
+  /* Junk keeps the fallback (the current position when patching), never a guess. */
+  function normalizeLogoPos(v, fallback) {
+    return typeof v === 'string' && logoPositions().indexOf(v) !== -1 ? v : fallback;
+  }
 
   function logoMinIn() {
     var S = window.BadgeSpec;
@@ -136,9 +171,19 @@
     var S = window.BadgeSpec;
     var d = S && S.LOGO_DEFAULT;
     if (d && typeof d.wIn === 'number' && typeof d.hIn === 'number') {
-      return { enabled: d.enabled === true, wIn: d.wIn, hIn: d.hIn };
+      return {
+        enabled: d.enabled === true,
+        wIn: d.wIn,
+        hIn: d.hIn,
+        pos: normalizeLogoPos(d.pos, logoPosDefault())
+      };
     }
-    return { enabled: LOGO_FALLBACK.enabled, wIn: LOGO_FALLBACK.wIn, hIn: LOGO_FALLBACK.hIn };
+    return {
+      enabled: LOGO_FALLBACK.enabled,
+      wIn: LOGO_FALLBACK.wIn,
+      hIn: LOGO_FALLBACK.hIn,
+      pos: LOGO_FALLBACK.pos
+    };
   }
 
   /* ---- text alignment (sheet-wide) ---------------------------------------
@@ -190,7 +235,8 @@
     return {
       enabled: o.enabled === true,
       wIn: clampInches(o.wIn, b.wIn),
-      hIn: clampInches(o.hIn, b.hIn)
+      hIn: clampInches(o.hIn, b.hIn),
+      pos: normalizeLogoPos(o.pos, normalizeLogoPos(b.pos, logoPosDefault()))
     };
   }
 
@@ -205,13 +251,13 @@
             'reserve as OFF. Badge sizes shown are for stock with no pre-printed logo.'
         );
       }
-      return { enabled: false, wIn: logoDefaults().wIn, hIn: logoDefaults().hIn, unavailable: true };
+      return { enabled: false, wIn: logoDefaults().wIn, hIn: logoDefaults().hIn, pos: logoDefaults().pos, unavailable: true };
     }
     try {
       return normalizeLogo(d.store.getLogo());
     } catch (err) {
       console.warn('[BadgeOverrides] BadgeStore.getLogo() threw:', err && err.message);
-      return { enabled: false, wIn: logoDefaults().wIn, hIn: logoDefaults().hIn, unavailable: true };
+      return { enabled: false, wIn: logoDefaults().wIn, hIn: logoDefaults().hIn, pos: logoDefaults().pos, unavailable: true };
     }
   }
 
@@ -415,27 +461,39 @@
       logo: {
         enabled: !!cfg.enabled,
         wPt: cfg.wIn * PT_PER_IN,
-        hPt: cfg.hIn * PT_PER_IN
+        hPt: cfg.hIn * PT_PER_IN,
+        pos: normalizeLogoPos(cfg.pos, logoPosDefault())
       },
       align: align
     };
   }
 
   /* Geometry the reserve imposes on the lines level with it, straight from the
-     spec: span [INSET, 288 - wPt], centered in THAT span. Shown in the panel so a
-     physical measurement against real stock can be checked without a calculator. */
+     spec: the narrowed span keeps the inset on its far side and runs to the
+     reserve's near edge — [INSET, 288 - wPt] for a right-side corner, mirrored
+     to [wPt, 288 - INSET] for the top-left one — and affected lines centre in
+     THAT span. Shown in the panel so a physical measurement against real stock
+     can be checked without a calculator. */
   function logoGeometry(d, cfg) {
     var wPt = cfg.wIn * PT_PER_IN;
     var hPt = cfg.hIn * PT_PER_IN;
+    var pos = normalizeLogoPos(cfg.pos, logoPosDefault());
+    var right = pos !== 'topLeft';
+    var bottom = pos === 'bottomRight';
     return {
+      pos: pos,
       wPt: wPt,
       hPt: hPt,
-      availW: d.spec.CELL_W - wPt - d.spec.INSET,
-      center: (d.spec.INSET + (d.spec.CELL_W - wPt)) / 2,
+      availW: d.spec.CELL_W - wPt - d.spec.INSET, // same width either side
+      center: right
+        ? (d.spec.INSET + (d.spec.CELL_W - wPt)) / 2
+        : (wPt + (d.spec.CELL_W - d.spec.INSET)) / 2,
       fullW: d.spec.BOX_W,
       fullCenter: d.spec.CELL_W / 2,
-      reserveX: d.spec.CELL_W - wPt,
-      reserveY: d.spec.CELL_H - hPt
+      reserveX0: right ? d.spec.CELL_W - wPt : 0,
+      reserveX1: right ? d.spec.CELL_W : wPt,
+      reserveY0: bottom ? d.spec.CELL_H - hPt : 0,
+      reserveY1: bottom ? d.spec.CELL_H : hPt
     };
   }
 
@@ -509,12 +567,14 @@
     panel.appendChild(subLabel('Logo reserve', true));
     panel.appendChild(
       el('p', {
-        text: 'For pre-printed stock with a logo in each badge’s bottom-right corner.',
+        text: 'For pre-printed stock with a logo printed in a corner of each badge.',
         className: 'ss-note-gap'
       })
     );
 
     // ---- toggle -------------------------------------------------------
+    // Untick for stock with no pre-printed logo — that is the "not there at all"
+    // option; the corner selector below covers the three printed positions.
     var toggleRow = el('label', {
       className: 'ss-toggle'
     });
@@ -529,6 +589,22 @@
     toggleRow.appendChild(refs.toggle);
     toggleRow.appendChild(el('span', { text: 'Reserve space for the pre-printed logo' }));
     panel.appendChild(toggleRow);
+
+    // ---- corner -------------------------------------------------------
+    // Which corner of every badge the logo occupies. Same control idiom as the
+    // alignment and sheet layout selects; options come from BadgeSpec.LOGO_POSITIONS
+    // so a fourth corner added to the spec appears here without touching this file.
+    refs.posWrap = el('div', { className: 'ss-dim' });
+    refs.posWrap.appendChild(el('label', { text: 'Corner', attrs: { for: 'logo-pos' } }));
+    refs.posSelect = el('select', {
+      id: 'logo-pos',
+      attrs: { 'aria-label': 'Corner of every badge the pre-printed logo occupies' }
+    });
+    refs.posSelect.addEventListener('change', function () {
+      commitLogo({ pos: refs.posSelect.value });
+    });
+    refs.posWrap.appendChild(refs.posSelect);
+    panel.appendChild(refs.posWrap);
 
     // ---- dimensions ---------------------------------------------------
     refs.dims = el('div', { className: 'ss-dims' });
@@ -733,7 +809,10 @@
     var next = {
       enabled: Object.prototype.hasOwnProperty.call(patch, 'enabled') ? patch.enabled === true : cur.enabled,
       wIn: Object.prototype.hasOwnProperty.call(patch, 'wIn') ? clampInches(patch.wIn, cur.wIn) : cur.wIn,
-      hIn: Object.prototype.hasOwnProperty.call(patch, 'hIn') ? clampInches(patch.hIn, cur.hIn) : cur.hIn
+      hIn: Object.prototype.hasOwnProperty.call(patch, 'hIn') ? clampInches(patch.hIn, cur.hIn) : cur.hIn,
+      pos: Object.prototype.hasOwnProperty.call(patch, 'pos')
+        ? normalizeLogoPos(patch.pos, normalizeLogoPos(cur.pos, logoPosDefault()))
+        : cur.pos
     };
     try {
       d.store.setLogo(next);
@@ -766,6 +845,25 @@
     logoEls.width.pts.textContent = fmt(g.wPt) + ' pt';
     logoEls.height.pts.textContent = fmt(g.hPt) + ' pt';
 
+    // Corner selector: options from the spec, current value from the store.
+    if (logoEls.posSelect) {
+      var sel = logoEls.posSelect;
+      empty(sel);
+      var positions = logoPositions();
+      for (var pi = 0; pi < positions.length; pi++) {
+        var key = positions[pi];
+        var label = Object.prototype.hasOwnProperty.call(LOGO_POS_LABELS, key)
+          ? LOGO_POS_LABELS[key]
+          : key;
+        var opt = el('option', { text: label }); // textContent, never markup
+        opt.value = key;
+        if (key === g.pos) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.value = g.pos;
+      sel.disabled = !!cfg.unavailable || !cfg.enabled;
+    }
+
     var note = logoEls.note;
     empty(note);
     if (cfg.unavailable) {
@@ -784,13 +882,17 @@
         'reserved. Set both dimensions above 0 for the reserve to have any effect.';
       return;
     }
+    var cornerName = (Object.prototype.hasOwnProperty.call(LOGO_POS_LABELS, g.pos)
+      ? LOGO_POS_LABELS[g.pos]
+      : g.pos).toLowerCase();
     note.textContent =
       'Reserving ' + fmt(g.wPt) + ' × ' + fmt(g.hPt) + ' pt in each badge’s ' +
-      'bottom-right corner (x ' + fmt(g.reserveX) + '–' + d.spec.CELL_W +
-      ', y ' + fmt(g.reserveY) + '–' + d.spec.CELL_H + '). Lines level with it get ' +
+      cornerName + ' corner (x ' + fmt(g.reserveX0) + '–' + fmt(g.reserveX1) +
+      ', y ' + fmt(g.reserveY0) + '–' + fmt(g.reserveY1) + '). Lines level with it get ' +
       fmt(g.availW) + ' pt of width instead of ' + fmt(g.fullW) + ' pt and centre on ' +
       fmt(g.center) + ' instead of ' + fmt(g.fullCenter) + ' — so they sit ' +
-      fmt(g.fullCenter - g.center) + ' pt left of the name lines, by design.';
+      fmt(Math.abs(g.fullCenter - g.center)) + ' pt ' +
+      (g.center < g.fullCenter ? 'left' : 'right') + ' of the unaffected lines, by design.';
   }
 
   /* ------------------------------------------------------------------ lifecycle */

@@ -735,6 +735,10 @@ function gated(name, cond, detail) {
      withLogo({ enabled: 'yes', wIn: 1, hIn: 1 }).enabled, false);
   eq('7b.junk config -> OFF', withLogo(null).enabled, false);
   eq('7b.non-object config -> OFF', withLogo('nope').enabled, false);
+  // the corner (added 2026-08-28) rides along, junk landing on bottomRight
+  eq('7b.pos passes through', withLogo({ enabled: true, wIn: 1, hIn: 1, pos: 'topLeft' }).pos, 'topLeft');
+  eq('7b.missing pos -> bottomRight', withLogo({ enabled: true, wIn: 1, hIn: 1 }).pos, 'bottomRight');
+  eq('7b.junk pos -> bottomRight', withLogo({ enabled: true, wIn: 1, hIn: 1, pos: 'underneath' }).pos, 'bottomRight');
   captureLogs(function () {
     window.BadgeStore = {
       getAttendees: function () { return []; },
@@ -765,6 +769,19 @@ function gated(name, cond, detail) {
   check('7c.oversized reserve clamps to the cell',
     big.x0 === 0 && big.y0 === 0 && big.x1 === 288 && big.y1 === 216,
     JSON.stringify(big));
+  // the rect follows the corner (added 2026-08-28)
+  var rTR = P.reservedRect({ enabled: true, wPt: 72, hPt: 72, pos: 'topRight' });
+  check('7c.topRight rect is the top-right corner',
+    rTR.x0 === 216 && rTR.y0 === 0 && rTR.x1 === 288 && rTR.y1 === 72 && rTR.pos === 'topRight',
+    JSON.stringify(rTR));
+  var rTL = P.reservedRect({ enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' });
+  check('7c.topLeft rect is the top-left corner',
+    rTL.x0 === 0 && rTL.y0 === 0 && rTL.x1 === 72 && rTL.y1 === 72 && rTL.pos === 'topLeft',
+    JSON.stringify(rTL));
+  var rBR = P.reservedRect({ enabled: true, wPt: 72, hPt: 72 });
+  check('7c.no pos -> the classic bottom-right rect',
+    rBR.x0 === 216 && rBR.y0 === 144 && rBR.x1 === 288 && rBR.y1 === 216 && rBR.pos === 'bottomRight',
+    JSON.stringify(rBR));
 })();
 
 // ---- 7d. opts REALLY reaches layout() (spy on the engine) ------------------

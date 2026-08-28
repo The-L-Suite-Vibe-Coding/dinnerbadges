@@ -1009,6 +1009,221 @@ try { L.layout(STRESS, null, frozenOpts); } catch (e) { frozeThrew = true; }
 ok(!frozeThrew, 'layout() accepts a deeply frozen opts object');
 
 // ===========================================================================
+section('15b. LOGO RESERVE POSITIONS — bottom right / top right / top left (added 2026-08-28)');
+
+// ---- the spec's vocabulary ------------------------------------------------
+ok(JSON.stringify(S.LOGO_POSITIONS) === '["bottomRight","topRight","topLeft"]',
+  'BadgeSpec.LOGO_POSITIONS is exactly the three corners', JSON.stringify(S.LOGO_POSITIONS));
+ok(S.LOGO_POSITION_DEFAULT === 'bottomRight', 'the default position is bottomRight');
+ok(S.LOGO_DEFAULT.pos === 'bottomRight', 'LOGO_DEFAULT carries pos: bottomRight');
+ok(Object.isFrozen(S.LOGO_POSITIONS), 'LOGO_POSITIONS is frozen');
+['bottomRight', 'topRight', 'topLeft'].forEach(function (p) {
+  ok(S.logoPosKey(p) === p, 'logoPosKey passes "' + p + '" through');
+});
+[undefined, null, 'bottomLeft', 'TOPLEFT', ' topLeft', 42, {}, []].forEach(function (junk) {
+  ok(S.logoPosKey(junk) === 'bottomRight',
+    'logoPosKey(' + JSON.stringify(junk === undefined ? 'undefined' : junk) + ') falls back to bottomRight');
+});
+ok(S.logoPt({ enabled: true, wPt: 72, hPt: 72 }).pos === 'bottomRight',
+  'logoPt() with no pos resolves to bottomRight — pre-option configs keep printing what they printed');
+ok(S.logoPt({ enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' }).pos === 'topLeft',
+  'logoPt() carries a valid pos through');
+
+// ---- an explicit bottomRight must be byte-identical to no pos at all ------
+[NORMAL, STRESS, LONG_CO].forEach(function (att, i) {
+  var noPos = JSON.stringify(L.layout(att, null, { logo: { enabled: true, wPt: 72, hPt: 72 } }));
+  var withPos = JSON.stringify(L.layout(att, null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'bottomRight' } }));
+  ok(noPos === withPos, 'explicit pos:bottomRight === omitted pos (fixture ' + i + ')');
+});
+
+// ---- generalized keep-out helpers (the rect can now be at any corner) -----
+/** Worst-case line ink band, mirroring the engine: full ascent above (lineTop IS
+    baselineY - ascent), full descender below. */
+function lineInkBand(l) {
+  return { top: l.lineTop, bottom: inkBottomOf(l) };
+}
+function lineHitsRect(l, R) {
+  var band = lineInkBand(l);
+  return band.bottom > R.y0 + 1e-9 && band.top < R.y1 - 1e-9 &&
+         l.x + l.lineWidth > R.x0 + 1e-9 && l.x < R.x1 - 1e-9;
+}
+/** Per-glyph keep-out, generalized from glyphsInReserve() to a rect at any corner:
+    each glyph's own advance cell horizontally, cap-height-to-descender vertically
+    with descender depth applied only to characters that actually have one. */
+function glyphsInRect(res) {
+  if (!res.logo || !res.logo.enabled) return [];
+  var R = res.logo.reserve;
+  var hits = [];
+  res.lines.forEach(function (l) {
+    if (!l.text) return;
+    var pen = l.x;
+    for (var i = 0; i < l.text.length; i++) {
+      var ch = l.text[i];
+      var adv = M.widthOf(ch, l.sizePt, l.weight, l.style);
+      var gx0 = pen;
+      var gx1 = pen + adv;
+      pen = gx1;
+      if (gx1 <= R.x0 + 1e-9 || gx0 >= R.x1 - 1e-9) continue;
+      var top = l.baselineY - (CAP_LITERAL / UPEM_LITERAL) * l.sizePt;
+      var bot = l.baselineY + (DESCENDER_GLYPHS.test(ch) ? (DESC_LITERAL / UPEM_LITERAL) * l.sizePt : 0);
+      if (bot > R.y0 + 1e-9 && top < R.y1 - 1e-9) {
+        hits.push(l.field + ' ' + JSON.stringify(ch) + ' x=' + r4(gx0) + '-' + r4(gx1) +
+          ' ink y=' + r4(top) + '-' + r4(bot) + ' vs rect ' + JSON.stringify(R));
+      }
+    }
+  });
+  return hits;
+}
+
+// ---- topRight: the band moves to the TOP, the span stays on the left ------
+var tr = L.layout(NORMAL, null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'topRight' }, align: 'center' });
+dump('NORMAL with a 1x1 in TOP-RIGHT reserve (centered)', tr);
+ok(JSON.stringify(tr.logo.reserve) === JSON.stringify({ x0: 216, y0: 0, x1: 288, y1: 72 }),
+  'topRight reserve rect is the top-right 72x72 corner', JSON.stringify(tr.logo.reserve));
+ok(tr.logo.pos === 'topRight', 'the diagnostic reports the position');
+ok(glyphsInRect(tr).length === 0, 'topRight: no glyph in the reserved rectangle', glyphsInRect(tr).slice(0, 2).join('; '));
+assertInsideCell(tr, 'topRight: nothing outside the cell');
+ok(tr.lines.some(function (l) { return l.narrowed && l.text; }), 'topRight: some line IS level with the top band');
+ok(tr.lines.some(function (l) { return !l.narrowed && l.text; }), 'topRight: and some line is not');
+ok(
+  tr.lines.filter(function (l) { return l.narrowed && l.text; }).every(function (l) { return Math.abs(l.x + l.lineWidth / 2 - NARROW_CENTER) < 1e-9; }),
+  'topRight: affected lines centre on 115.2, same as bottomRight (the span is the same side)'
+);
+ok(
+  tr.lines.filter(function (l) { return !l.narrowed && l.text; }).every(function (l) { return Math.abs(l.x + l.lineWidth / 2 - 144) < 1e-9; }),
+  'topRight: unaffected lines stay centred on 144'
+);
+// the top band catches the TOP of the block, the bottom band the BOTTOM
+var br = L.layout(NORMAL, null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'bottomRight' }, align: 'center' });
+var trFirstNarrowed = tr.lines.filter(function (l) { return l.text; })[0].narrowed;
+var brInk = br.lines.filter(function (l) { return l.text; });
+ok(trFirstNarrowed === true, 'topRight: the FIRST inked line (first name) is the narrowed one');
+ok(brInk[brInk.length - 1].narrowed === true, 'bottomRight: the LAST inked line is narrowed — mirrored bands');
+var noLogoNormal = L.layout(NORMAL, null, { align: 'center' });
+near(tr.blockHeight, noLogoNormal.blockHeight, 1e-9, 'topRight: the reserve does not change block height (width only)');
+near(tr.lines[0].lineTop, noLogoNormal.lines[0].lineTop, 1e-9, 'topRight: the reserve does not change vertical placement');
+
+// ---- topLeft: band on top, span mirrored to the RIGHT of the reserve ------
+var TL_CENTER = (72 + (288 - 14.4)) / 2; // 172.8 — the mirror of 115.2
+var tl = L.layout(NORMAL, null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' }, align: 'center' });
+dump('NORMAL with a 1x1 in TOP-LEFT reserve (centered)', tl);
+ok(JSON.stringify(tl.logo.reserve) === JSON.stringify({ x0: 0, y0: 0, x1: 72, y1: 72 }),
+  'topLeft reserve rect is the top-left 72x72 corner', JSON.stringify(tl.logo.reserve));
+ok(glyphsInRect(tl).length === 0, 'topLeft: no glyph in the reserved rectangle', glyphsInRect(tl).slice(0, 2).join('; '));
+assertInsideCell(tl, 'topLeft: nothing outside the cell');
+ok(
+  tl.lines.filter(function (l) { return l.narrowed && l.text; }).every(function (l) { return Math.abs(l.x + l.lineWidth / 2 - TL_CENTER) < 1e-9; }),
+  'topLeft: affected lines centre on 172.8 — 28.8 pt RIGHT of the cell centre'
+);
+ok(
+  tl.lines.filter(function (l) { return l.narrowed && l.text; }).every(function (l) { return l.x >= 72 - 1e-9; }),
+  'topLeft: affected lines start at or right of the 72 pt reserve edge'
+);
+ok(
+  tl.lines.filter(function (l) { return !l.narrowed && l.text; }).every(function (l) { return Math.abs(l.x + l.lineWidth / 2 - 144) < 1e-9; }),
+  'topLeft: unaffected lines stay centred on 144'
+);
+
+// ---- topLeft under LEFT alignment: only affected lines indent -------------
+// The shared block edge is computed exactly as with no left-side reserve, and
+// each line then starts at max(blockLeft, its spanLo): hoisting the shared edge
+// itself to 72 pt would push a full-width unaffected line off the cell.
+var tlLeft = L.layout(NORMAL, null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' }, align: 'left' });
+dump('NORMAL with a 1x1 in TOP-LEFT reserve (left-aligned)', tlLeft);
+ok(glyphsInRect(tlLeft).length === 0, 'topLeft/left: no glyph in the reserved rectangle', glyphsInRect(tlLeft).slice(0, 2).join('; '));
+assertInsideCell(tlLeft, 'topLeft/left: nothing outside the cell');
+(function () {
+  // independent expectation: blockLeft from the un-narrowed formula, then the indent
+  var inked = tlLeft.lines.filter(function (l) { return l.text; });
+  var widest = 0;
+  inked.forEach(function (l) { if (l.lineWidth > widest) widest = l.lineWidth; });
+  var expBlockLeft = 14.4 + Math.max(0, ((288 - 2 * 14.4) - widest) / 2);
+  var bad = [];
+  tlLeft.lines.forEach(function (l, i) {
+    if (!l.text) return;
+    var expX = l.narrowed ? Math.max(expBlockLeft, 72) : expBlockLeft;
+    if (Math.abs(l.x - expX) > 1e-6) bad.push('line ' + i + ' (' + l.field + ') x ' + r4(l.x) + ' != ' + r4(expX));
+  });
+  ok(bad.length === 0, 'topLeft/left: unaffected lines share the block edge, affected lines indent to clear the logo', bad.join('; '));
+  ok(inked.some(function (l) { return l.narrowed; }), 'topLeft/left: the fixture really exercises the indent');
+})();
+// bottomRight and disabled reserves must be COMPLETELY unaffected by the new x rule
+[null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'bottomRight' } }].forEach(function (o, i) {
+  var res = L.layout(NORMAL, null, o ? { logo: o.logo, align: 'left' } : { align: 'left' });
+  var xs = {};
+  res.lines.forEach(function (l) { if (l.text) xs[r4(l.x)] = true; });
+  ok(Object.keys(xs).length === 1, (o ? 'bottomRight' : 'no reserve') + ' under left align: all lines still share ONE left edge (case ' + i + ')', JSON.stringify(Object.keys(xs)));
+});
+
+// ---- the wide sweep, now across all three corners --------------------------
+var posSweepBad = 0;
+var posSweepGlyphBad = 0;
+var posSweepSample = [];
+var posSweepChecked = 0;
+['bottomRight', 'topRight', 'topLeft'].forEach(function (pos) {
+  SWEEP.forEach(function (att) {
+    [null, { title: -2 }, { first: 6, last: 6, company: 6, title: 6 }].forEach(function (ov) {
+      ['left', 'center'].forEach(function (al) {
+        var r = L.layout(att, ov, { logo: { enabled: true, wPt: 72, hPt: 72, pos: pos }, align: al });
+        posSweepChecked++;
+        if (!r.logo.converged) posSweepBad++;
+        var g = glyphsInRect(r);
+        if (g.length) { posSweepGlyphBad += g.length; posSweepSample.push(pos + '/' + al + ': ' + g[0]); }
+        r.lines.forEach(function (ln) {
+          if (!ln.text) return;
+          if (lineHitsRect(ln, r.logo.reserve)) posSweepBad++;
+          if (ln.x < -1e-9 || ln.x + ln.lineWidth > 288 + 1e-9) posSweepBad++;
+          if (ln.lineTop < -1e-9 || ln.lineTop + ln.advance > 216 + 1e-9) posSweepBad++;
+        });
+      });
+    });
+  });
+});
+ok(posSweepGlyphBad === 0, 'position sweep (' + posSweepChecked + ' layouts): no PER-GLYPH reserve violation at any corner', posSweepSample.slice(0, 2).join('; '));
+ok(posSweepBad === 0, 'position sweep (' + posSweepChecked + ' layouts): no line-level reserve or cell violation, all converged');
+
+// ---- exhaustive geometry sweep for the two NEW corners ---------------------
+var posGeomBad = 0;
+var posGlyphGeomBad = 0;
+var posGeomSample = [];
+var posGeomChecked = 0;
+var posMaxPasses = 0;
+['topRight', 'topLeft'].forEach(function (pos) {
+  for (var lw = 0; lw <= 288; lw += 16) {
+    for (var lh = 0; lh <= 216; lh += 16) {
+      for (var si = 0; si < 4; si++) {
+        var rr = L.layout(SWEEP[si], null, { logo: { enabled: true, wPt: lw, hPt: lh, pos: pos } });
+        posGeomChecked++;
+        if (rr.logo.enabled) {
+          posMaxPasses = Math.max(posMaxPasses, rr.logo.passes);
+          if (!rr.logo.converged) posGeomBad++;
+        }
+        var gh = glyphsInRect(rr);
+        if (gh.length) { posGlyphGeomBad += gh.length; posGeomSample.push(pos + ' ' + lw + 'x' + lh + ': ' + gh[0]); }
+        rr.lines.forEach(function (ln) {
+          if (!ln.text) return;
+          if (rr.logo.enabled && lineHitsRect(ln, rr.logo.reserve)) posGeomBad++;
+          if (ln.x < -1e-9 || ln.x + ln.lineWidth > 288 + 1e-9) posGeomBad++;
+        });
+      }
+    }
+  }
+});
+ok(posGlyphGeomBad === 0, 'exhaustive sweep of ' + posGeomChecked + ' top-corner reserve geometries: zero PER-GLYPH violations', posGeomSample.slice(0, 2).join('; '));
+ok(posGeomBad === 0, 'exhaustive sweep of ' + posGeomChecked + ' top-corner reserve geometries: zero line-level violations, all converged');
+ok(posMaxPasses <= 4, 'the fixed point still never needed more than 4 passes at the new corners', 'max ' + posMaxPasses);
+
+// ---- determinism and purity with a position ---------------------------------
+var posOpts = { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' } };
+var posSnap = JSON.stringify(posOpts);
+ok(JSON.stringify(L.layout(STRESS, { company: 1 }, posOpts)) === JSON.stringify(L.layout(STRESS, { company: 1 }, posOpts)),
+  'layout() is deterministic with a positioned reserve');
+ok(JSON.stringify(posOpts) === posSnap, 'layout() does not mutate a positioned opts object');
+var junkPos = L.layout(NORMAL, null, { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'underneath' } });
+ok(JSON.stringify(junkPos) === JSON.stringify(L.layout(NORMAL, null, { logo: { enabled: true, wPt: 72, hPt: 72 } })),
+  'a junk pos lands on bottomRight — the sheet that has always printed');
+
+// ===========================================================================
 section('16. SHEET PRESETS — sample top-left vs Avery 74536 (pure translation)');
 // ===========================================================================
 ok(S.SHEET_PRESET_DEFAULT === 'sampleTopLeft', 'the default preset is sampleTopLeft (existing behavior)');

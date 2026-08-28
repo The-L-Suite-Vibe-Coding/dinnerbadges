@@ -233,26 +233,31 @@ One thing worth knowing: **font sizes and wrap points are identical in both mode
 decides horizontal position and nothing else, so switching between Left and Centred will never
 make text suddenly shrink or re-wrap.
 
-**Logo reserve** — for stock that already has a logo printed in each badge's bottom-right
-corner. Tick **"Reserve space for the pre-printed logo"** and set a **Width** and **Height** in
-**inches** (default **1 x 1**, adjustable from 0 to 4 in 0.25" steps). **On by default**,
-because the stock in use has a pre-printed logo there. The tool keeps that corner rectangle
-clear of text; untick it and every badge goes back to using the full width.
+**Logo reserve** — for stock that already has a logo printed in a corner of each badge.
+Tick **"Reserve space for the pre-printed logo"**, pick which **Corner** it occupies
+(**Bottom right** — the default — **Top right**, or **Top left**), and set a **Width** and
+**Height** in **inches** (default **1 x 1**, adjustable from 0 to 4 in 0.25" steps). **On by
+default**, because the stock in use has a pre-printed logo there. The tool keeps that corner
+rectangle clear of text; untick the box and every badge goes back to using the full width —
+that is the "no logo at all" option.
 
 If you have used this tool before on the same computer and the reserve looks switched off,
 that is your saved setting being remembered rather than the new default — tick the box (or
 use **Clear all data**) and it will stick.
 
-Lines that sit level with the reserved corner — normally Company and Title — get less width to
-work with, so they may wrap or shrink sooner. What happens to their position depends on the
-alignment you chose:
+Lines that sit level with the reserved corner — Company and Title for a bottom corner, the
+First name for a top one — get less width to work with, so they may wrap or shrink sooner.
+What happens to their position depends on the alignment you chose:
 
-- **Left** (the default): all four lines keep one shared left edge, names included. The block
-  simply recentres in the narrower space left of the logo, so the whole badge's text moves
-  together rather than one line drifting away from the others.
-- **Centred**: they narrow *and* recentre in the space left of the logo, landing about **0.4" to
-  the left of the first and last name above them**. That looks slightly off-centre on screen.
-  **It is intended, not a glitch** — those lines are centred in the space they actually have.
+- **Left** (the default): all four lines keep one shared left edge, names included. For the
+  right-side corners the block simply recentres in the narrower space left of the logo, so the
+  whole badge's text moves together rather than one line drifting away from the others. For
+  **Top left**, only the lines level with the logo indent to its right — pushing the whole
+  block right of the logo would shove a full-width line off the badge.
+- **Centred**: they narrow *and* recentre in the space beside the logo, landing about **0.4"
+  away from the unaffected lines** (to the left for a right-side corner, to the right for
+  top-left). That looks slightly off-centre on screen. **It is intended, not a glitch** —
+  those lines are centred in the space they actually have.
 
 The preview marks the reserved corner as a screen-only guide; **nothing is drawn there in the
 PDF**, because the logo is already physically on the badge.

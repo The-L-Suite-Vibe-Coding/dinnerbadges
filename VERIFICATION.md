@@ -1311,3 +1311,89 @@ the picture before theorising** - it is worth more than any amount of structural
 
 **Still not verified: Word and Google Docs after these fixes.** Neither is available here.
 LibreOffice is unchanged, which confirms nothing regressed but cannot confirm the fix.
+
+## 12. Logo reserve position option, added 2026-08-28
+
+Julia asked for the option to move the 1 in logo reserve between **bottom right** (the
+existing behaviour), **top right**, **top left**, or **off entirely**. "Off" already
+existed (the reserve toggle), so the change is a `pos` field on the logo config:
+`'bottomRight' | 'topRight' | 'topLeft'`, default `'bottomRight'`.
+
+### 12.1 Where the position lives
+
+One field, resolved in one place. `BadgeSpec.LOGO_POSITIONS` / `LOGO_POSITION_DEFAULT`
+hold the vocabulary and `BadgeSpec.logoPosKey()` resolves any input against it, exactly
+as `alignKey()` and `sheetPresetKey()` do for the other two sheet settings.
+`BadgeSpec.logoPt()` — already the single owner of the reserve-normalising arithmetic —
+now returns `pos` alongside `wPt`/`hPt`, so the preview, the PDF exporter and the Word
+exporter all receive the position through the pipes they already had. `js/pdf.js` gained
+one pass-through line (`pos: cfg.pos` in `logoFromStore()`); `js/docx.js` gained nothing
+at all, because it resolves settings through `BadgePdf.resolveLogo()`.
+
+The store keeps `pos` inside the existing `lsuite.badges.logo` key. A config saved before
+the option simply lacks the field and reads back as `bottomRight` — **what that browser
+always printed** — and junk (a corrupt value, `'TOPLEFT'`, a number) keeps the current
+position when patching or lands on the default when loading, mirroring the inches rules.
+
+### 12.2 The geometry, measured
+
+The reserve rectangle is still measured from the RAW cell edge and still narrows WIDTH
+ONLY. For a 1 in reserve:
+
+| position | rectangle (cell-relative) | y-band test | narrowed span | centre |
+|---|---|---|---|---|
+| bottomRight | x 216–288, y 144–216 | ink bottom (baseline + full descender) > 144 | [14.4, 216], 201.6 pt | 115.2 |
+| topRight    | x 216–288, y 0–72    | line top (= baseline − ascent) < 72          | [14.4, 216], 201.6 pt | 115.2 |
+| topLeft     | x 0–72,   y 0–72     | line top < 72                                 | [72, 273.6], 201.6 pt | 172.8 |
+
+The band tests are both worst-case, mirrored: downward ink uses the full descender depth
+(decision 10 unchanged); upward ink uses the full hhea ascent, which `lineTop` already
+equals by construction (`baselineY = lineTop + ascentPt`), and which covers accented
+capitals. For the top bands it is the FIRST inked line (the 36 pt first name) that
+narrows rather than the last, which the tests assert explicitly.
+
+### 12.3 The one asymmetry: left alignment with a LEFT-side reserve
+
+Under `'left'` alignment every line shares one left edge. For a right-side reserve that
+edge never conflicts with the logo (the narrowed lines just end sooner). For the
+top-left reserve it can: hoisting the shared edge itself to the reserve's right edge
+(72 pt) would push a full-width un-narrowed line to 72 + 259.2 = 331.2 pt — off the
+288 pt cell entirely. So the shared edge is computed exactly as before, and each line
+starts at `max(blockLeft, its own spanLo)`: **only the lines level with the logo indent
+right to clear it**. That is the mirror of the documented centre-alignment behaviour
+(only affected lines shift 28.8 pt). Containment was proved rather than argued:
+`blockLeft + blockWidth <= blockHi` by construction, and a narrowed line is at most
+201.6 pt wide starting at 72 pt, i.e. right edge <= 273.6 = CELL_W − INSET. For every
+right-side or disabled reserve `spanLo` is INSET, `max(blockLeft, INSET)` IS
+`blockLeft`, and the pre-position numbers reproduce bit for bit — asserted by comparing
+an explicit `pos:'bottomRight'` against no `pos` at all, JSON-identical.
+
+### 12.4 What was verified
+
+- **Node suites: 30,530 checks, all green** (was 30,428). New coverage:
+  `layout.test.js` §15b (spec vocabulary; explicit-bottomRight ≡ no-pos; per-glyph and
+  line-level keep-out generalised to a rect at any corner; a 162-layout position sweep
+  over fixtures × overrides × alignments × all three corners; an exhaustive
+  2,128-geometry sweep of the two new corners at 16 pt steps, zero violations, fixed
+  point still ≤ 4 passes; determinism/purity/junk-pos fallbacks), `store.test.js` §18n
+  (round-trip, reload survival, junk handling, pre-position configs, corrupt stored
+  pos), `overrides.test.js` (the Corner `<select>`: three options in spec order,
+  commits, disables with the toggle, panel note names the corner and the 172.8 pt
+  mirror centre), `preview.test.js` (pos pass-through in `logoPt()`/`reservedRect()`
+  per corner), `pdf.test.js` (`resolveLogo()` ≡ `BadgeSpec.logoPt()` for pos configs
+  including junk).
+- **In the browser** (served over localhost, console clean): the Corner select renders
+  under the reserve toggle; switching corners moves the dashed screen guide to the
+  chosen corner on all six cells and re-lays the badge — top-left indents the first
+  name right of the reserve while the other lines keep the shared edge; the panel note
+  updates with the corner name and the correct numbers; Clear all data resets to
+  bottom right.
+- **The on-screen guide** is now positioned by inline `left`/`top` from the reserve
+  rect instead of a CSS `right:0; bottom:0` pin — same element, same guides toggle,
+  still outside the `<svg>`, still zero geometry.
+
+**Not re-verified here:** a rasterised PDF and a Word/Google Docs render at the new
+positions. Both exporters draw `layout()`'s numbers verbatim through code paths this
+change did not touch (the docx indent is `line.x`, which §12.3's tests pin down), and
+the existing rasterised checks still pass at the default position. Print one proof
+sheet before a real run on top-corner stock, as with any geometry change.

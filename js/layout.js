@@ -68,18 +68,26 @@
  *   vertical model. The acceptance criterion "each line's horizontal center matches
  *   the cell center" therefore holds only under 'center', by design.
  *
- * D. BOTTOM-RIGHT LOGO RESERVE (ADDENDUM 2 section C)
- *   opts.logo = { enabled, wPt, hPt }; omitted => disabled, and when disabled every
- *   number this module returns is identical to the pre-feature behavior.
- *   Reserved rectangle, cell-relative, from the RAW cell edge (the logo is printed
- *   at the stock's real corner, not inside our inset):
- *     x in [CELL_W - wPt, CELL_W],  y in [CELL_H - hPt, CELL_H]
- *   A line whose INK extent (down to baseline + full descenderDepth, NOT the
- *   advance box) intersects that y-band
- *   is laid out in the span [INSET, CELL_W - wPt] — narrower width AND a different
- *   center ((INSET + CELL_W - wPt)/2, i.e. 115.2 pt for a 1 in block instead of
- *   144). Lines that miss the band keep the full 259.2 pt span and center 144, so
- *   affected lines sit 28.8 pt left of unaffected ones. That is intended.
+ * D. CORNER LOGO RESERVE (ADDENDUM 2 section C; position option added 2026-08-28)
+ *   opts.logo = { enabled, wPt, hPt, pos }; omitted => disabled, and when disabled
+ *   every number this module returns is identical to the pre-feature behavior.
+ *   pos is one of BadgeSpec.LOGO_POSITIONS ('bottomRight' | 'topRight' |
+ *   'topLeft'), resolved by BadgeSpec.logoPt(); 'bottomRight' is the default and
+ *   reproduces the pre-position-option numbers bit for bit. Reserved rectangle,
+ *   cell-relative, from the RAW cell edge (the logo is printed at the stock's
+ *   real corner, not inside our inset):
+ *     bottomRight  x in [CELL_W - wPt, CELL_W],  y in [CELL_H - hPt, CELL_H]
+ *     topRight     x in [CELL_W - wPt, CELL_W],  y in [0, hPt]
+ *     topLeft      x in [0, wPt],                y in [0, hPt]
+ *   A line whose INK extent intersects the reserve's y-band (down to baseline +
+ *   full descenderDepth for a bottom band; up to the full ascent — the advance-box
+ *   top — for a top band; NOT the advance box downward) is laid out in the span
+ *   beside the reserve: [INSET, CELL_W - wPt] for a right-side reserve,
+ *   [wPt, CELL_W - INSET] for a left-side one — narrower width AND a different
+ *   center ((INSET + CELL_W - wPt)/2 = 115.2 pt for a 1 in right-side block,
+ *   (wPt + CELL_W - INSET)/2 = 172.8 pt for the left-side mirror, instead of 144).
+ *   Lines that miss the band keep the full 259.2 pt span and center 144, so
+ *   affected lines sit 28.8 pt toward the far side of unaffected ones. Intended.
  *   The reserve narrows WIDTH ONLY: it never changes available height and never
  *   changes the vertical centering math.
  *
@@ -351,7 +359,7 @@
    * layout(attendee, override, opts) — see the contract in BADGE_SPEC.md.
    * attendee: { first, last, company, title } (id ignored)
    * override: { first, last, company, title } in 0.5 pt STEP units, or null
-   * opts:     { logo: { enabled, wPt, hPt }, align: 'left'|'center' } or null
+   * opts:     { logo: { enabled, wPt, hPt, pos }, align: 'left'|'center' } or null
    */
   function layout(attendee, override, opts) {
     var deps = requireDeps();
@@ -363,14 +371,26 @@
 
     var logo = readLogo(opts, S);
     var align = readAlign(opts, S);
-    // Span available to a line: the full text box, or the narrowed span left of
+    // Which corner the reserve occupies. logoPt() already resolved pos, so these
+    // two booleans are the only place the position is interpreted. When the logo
+    // is off, pos is absent and both default harmlessly — nothing below reads
+    // NARROW_SPAN or the band unless a line is actually narrowed.
+    var logoRight = !logo.enabled || logo.pos !== 'topLeft'; // reserve on the right edge?
+    var logoBottom = logo.enabled && logo.pos === 'bottomRight'; // ...at the bottom? (else top)
+    // Span available to a line: the full text box, or the narrowed span beside
     // the reserve. Both are expressed as [lo, hi] so the centering formula is one
     // formula — when the logo is off, center is (14.4 + 273.6)/2 = 144 exactly as
     // before, which is why disabling the feature reproduces the old numbers bit
-    // for bit.
+    // for bit. The narrowed span keeps the 14.4 pt inset on its far side and runs
+    // to the reserve's near edge on the other, mirrored for a left-side reserve.
     var FULL_SPAN = { lo: S.INSET, hi: S.CELL_W - S.INSET };
-    var NARROW_SPAN = { lo: S.INSET, hi: S.CELL_W - logo.wPt };
-    var BAND_TOP = S.CELL_H - logo.hPt; // top edge of the reserved y-band
+    var NARROW_SPAN = logoRight
+      ? { lo: S.INSET, hi: S.CELL_W - logo.wPt }
+      : { lo: logo.wPt, hi: S.CELL_W - S.INSET };
+    // The reserved y-band. For the classic bottom band, BAND_BOTTOM is the cell
+    // bottom; for a top band, BAND_TOP is 0 — one pair of numbers serves both.
+    var BAND_TOP = logoBottom ? S.CELL_H - logo.hPt : 0;
+    var BAND_BOTTOM = logoBottom ? S.CELL_H : logo.hPt;
     function spanWidth(sp) {
       return Math.max(0, sp.hi - sp.lo);
     }
@@ -636,6 +656,11 @@
      * happens to contain a descender. (Optical centring, by contrast, uses HALF the
      * depth: there we want the expected extent, not the worst case. Different
      * questions, deliberately different numbers.)
+     *
+     * Upward, the worst case is the full ascent, and lineTop IS baselineY minus
+     * ascentPt by construction — so for a TOP band the advance-box top is already
+     * the extent a keep-out must respect (Inter's hhea ascent covers accented
+     * capitals). The same worst-case rule, mirrored.
      */
     function intersectsBand(row) {
       if (!logo.enabled) return false;
@@ -643,7 +668,7 @@
         row.lineTop + row.advance,
         row.baselineY + M.descenderDepthPt(row.sizePt)
       );
-      return inkBottom > BAND_TOP + EPS && row.lineTop < S.CELL_H - EPS;
+      return inkBottom > BAND_TOP + EPS && row.lineTop < BAND_BOTTOM - EPS;
     }
 
     // ---- the logo fixed point ---------------------------------------------
@@ -754,11 +779,24 @@
     //             result is flush-left against the safety margin.
     //
     // The span used for the BLOCK is the tightest one any inked line is subject to:
-    // spanLo is always INSET, and the right edge is the minimum spanHi across the
-    // inked lines. That keeps the block inside the reserve's remaining space when
-    // any line is level with the logo, and — because a reserve narrower than the
-    // inset would otherwise widen the span — never lets a line past the right
-    // inset edge either.
+    // spanLo is always INSET for a right-side reserve, and the right edge is the
+    // minimum spanHi across the inked lines. That keeps the block inside a
+    // right-side reserve's remaining space when any line is level with the logo,
+    // and — because a reserve narrower than the inset would otherwise widen the
+    // span — never lets a line past the right inset edge either.
+    //
+    // A LEFT-side reserve cannot work that way: hoisting the shared edge itself to
+    // the reserve's right edge (72 pt for a 1 in logo) would push a full-width
+    // un-narrowed line to 72 + 259.2 = 331.2 pt, off the cell entirely. So the
+    // shared edge is computed exactly as before, and each line then starts at
+    // max(blockLeft, its own spanLo) — only the lines actually level with the logo
+    // indent right to clear it, the exact mirror of how, under 'center', only the
+    // lines level with a right-side reserve shift 28.8 pt left. Containment holds
+    // because blockLeft + blockWidth <= blockHi by construction and a narrowed
+    // line is at most NARROW_SPAN wide, so even indented to spanLo (= wPt) its
+    // right edge stays inside CELL_W - INSET. For every right-side or disabled
+    // reserve, spanLo is INSET and max(blockLeft, INSET) IS blockLeft, so this is
+    // bit-identical to the pre-position behaviour.
     var blockWidth = 0;
     var blockHi = FULL_SPAN.hi;
     var anyInk = false;
@@ -775,7 +813,9 @@
     }
     for (i = 0; i < lines.length; i++) {
       var ln = lines[i];
-      ln.x = align === 'center' ? (ln.spanLo + ln.spanHi) / 2 - ln.lineWidth / 2 : blockLeft;
+      ln.x = align === 'center'
+        ? (ln.spanLo + ln.spanHi) / 2 - ln.lineWidth / 2
+        : Math.max(blockLeft, ln.spanLo);
       delete ln.spanLo;
       delete ln.spanHi;
     }
@@ -859,7 +899,13 @@
             enabled: true,
             wPt: logo.wPt,
             hPt: logo.hPt,
-            reserve: { x0: S.CELL_W - logo.wPt, y0: BAND_TOP, x1: S.CELL_W, y1: S.CELL_H },
+            pos: logo.pos,
+            reserve: {
+              x0: logoRight ? S.CELL_W - logo.wPt : 0,
+              y0: BAND_TOP,
+              x1: logoRight ? S.CELL_W : logo.wPt,
+              y1: BAND_BOTTOM
+            },
             narrowedFields: narrowed,
             passes: passes,
             converged: converged
