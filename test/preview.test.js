@@ -1464,6 +1464,34 @@ function withoutX(line) {
     fs.existsSync(path.join(__dirname, 'preview.browser.js')), 'missing browser suite');
 })();
 
+// ===========================================================================
+// 11. UPLOADED LOGO IMAGE — the preview positions it from the ENGINE's reserve
+// ===========================================================================
+(function () {
+  var att = { id: 'lg', first: 'Ana', last: 'Rios', company: 'Acme', title: 'GC' };
+  ['bottomRight', 'topRight', 'topLeft'].forEach(function (pos) {
+    var logo = { enabled: true, wPt: 72, hPt: 72, pos: pos };
+    var m = P.renderModel(att, null, { logo: logo, align: 'left' });
+    var eng = window.BadgeLayout.layout(att, null, { logo: logo, align: 'left' }).logo.reserve;
+    check('11.' + pos + ': renderModel carries layout()\'s own reserve for the logo',
+      !!m.logoReserve && JSON.stringify(m.logoReserve) === JSON.stringify(eng),
+      JSON.stringify(m.logoReserve) + ' vs ' + JSON.stringify(eng));
+    var guide = m.reserve;
+    check('11.' + pos + ': and it is the same rectangle the dashed guide is drawn at',
+      guide.x0 === eng.x0 && guide.y0 === eng.y0 && guide.x1 === eng.x1 && guide.y1 === eng.y1,
+      JSON.stringify(guide));
+  });
+  var off = P.renderModel(att, null, { logo: { enabled: false }, align: 'left' });
+  check('11.reserve off: no logo reserve, so no logo is drawn', off.logoReserve === null,
+    JSON.stringify(off.logoReserve));
+  var empty = P.renderModel(null, null, { logo: { enabled: true, wPt: 72, hPt: 72 } });
+  check('11.an empty cell has no logo reserve for the image (empty cells print nothing)',
+    !empty.ok && empty.logoReserve === undefined, String(empty.logoReserve));
+  var src = fs.readFileSync(path.join(SITE, 'js', 'preview.js'), 'utf8');
+  check('11.the logo is placed via BadgeLayout.logoImageRect, not re-derived here',
+    /logoImageRect\(/.test(src) && !/LOGO_IMAGE_PAD_PT/.test(src), '');
+})();
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------

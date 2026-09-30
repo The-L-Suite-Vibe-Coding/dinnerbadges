@@ -16,6 +16,15 @@
  *                             'bottomRight' (default) | 'topRight' | 'topLeft'; a config
  *                             saved before the position option simply lacks the key and
  *                             reads back as 'bottomRight', which is what it printed as.
+ *   lsuite.badges.logoImage   JSON object { name, type, base64, wPx, hPx } — an OPTIONAL
+ *                             uploaded logo, printed inside the reserve above on blank
+ *                             stock (added 2026-09-30). `type` is 'png' | 'jpeg';
+ *                             `base64` is the file's bytes; wPx/hPx its pixel size, kept
+ *                             so the preview and the PDF fit it with the same ratio
+ *                             without decoding it again. Absent = no logo, nothing drawn.
+ *                             No size cap (Julia, 2026-09-30): a logo too large for the
+ *                             browser's quota still works for the visit, and
+ *                             setLogoImage() reports that it was not saved.
  *
  * PRIVACY: localStorage only. No cookies, no analytics, no telemetry, no network of any
  * kind. This file calls exactly two host APIs — window.localStorage and console — and
@@ -49,7 +58,9 @@
   var KEY_LOGO = PREFIX + 'logo';
   var KEY_SHEET = PREFIX + 'sheetPreset';
   var KEY_ALIGN = PREFIX + 'align';
-  var ALL_KEYS = [KEY_ATTENDEES, KEY_OVERRIDES, KEY_PAGE, KEY_LOGO, KEY_SHEET, KEY_ALIGN];
+  var KEY_LOGO_IMAGE = PREFIX + 'logoImage';
+  var ALL_KEYS = [KEY_ATTENDEES, KEY_OVERRIDES, KEY_PAGE, KEY_LOGO, KEY_SHEET, KEY_ALIGN,
+    KEY_LOGO_IMAGE];
 
   var FIELDS = ['first', 'last', 'title', 'company'];
   var NUDGE_FIELDS = ['first', 'last', 'company', 'title'];
@@ -131,6 +142,9 @@
      js/spec.js (ALIGNS / ALIGN_DEFAULT) when it is loaded; these are the fallback. */
   var ALIGN_KEYS_FALLBACK = ['left', 'center'];
   var ALIGN_DEFAULT_FALLBACK = 'left';
+  /* BadgeSpec.LOGO_IMAGE_TYPES is the authority; fallback only for a missing spec.js. */
+  var LOGO_IMAGE_TYPES_FALLBACK = ['png', 'jpeg'];
+  var LOGO_IMAGE_NAME_MAX = 255;
 
   /* A subscriber that mutates the store on notification would otherwise recurse without
      bound. Cascades are dispatched iteratively (never nested) and capped here. */
@@ -151,6 +165,7 @@
   var logo = { enabled: true, wIn: 1, hIn: 1, pos: LOGO_POS_DEFAULT_FALLBACK };
   var sheetPreset = SHEET_DEFAULT_FALLBACK;
   var align = ALIGN_DEFAULT_FALLBACK;
+  var logoImage = null;         // uploaded logo { name, type, base64, wPx, hPx }, or null
   var loaded = false;           // has load() run (set in a finally — see load())
   var subscribers = [];
   var idCounter = 0;
@@ -515,6 +530,25 @@
     return normalizeEnum(raw, 'ALIGNS', 'ALIGN_DEFAULT', ALIGN_KEYS_FALLBACK, ALIGN_DEFAULT_FALLBACK);
   }
 
+  /* An uploaded logo, or null. Checked field by field so a hand-edited or truncated
+     value reads as "no logo" instead of reaching pdf-lib as garbage. The base64 check
+     is the character set only — whether the bytes really ARE a PNG/JPEG is decided
+     when the file is picked (js/sheet-settings.js sniffs its first bytes) and again
+     by pdf-lib at export, which fails with a message rather than drawing junk. */
+  function normalizeLogoImage(raw) {
+    if (!isPlainObject(raw)) return null;
+    var types = enumKeys('LOGO_IMAGE_TYPES', LOGO_IMAGE_TYPES_FALLBACK);
+    if (typeof raw.type !== 'string' || types.indexOf(raw.type) === -1) return null;
+    if (typeof raw.base64 !== 'string' || !raw.base64 ||
+        !/^[A-Za-z0-9+\/]+={0,2}$/.test(raw.base64)) return null;
+    var w = raw.wPx;
+    var h = raw.hPx;
+    if (typeof w !== 'number' || typeof h !== 'number' || !isFinite(w) || !isFinite(h) ||
+        w <= 0 || h <= 0) return null;
+    var name = typeof raw.name === 'string' ? raw.name.slice(0, LOGO_IMAGE_NAME_MAX) : '';
+    return { name: name, type: raw.type, base64: raw.base64, wPx: w, hPx: h };
+  }
+
   /* Overrides for attendees that no longer exist are dead weight that would otherwise
      accumulate on disk forever (each fresh guest list loaded in leaves a new crop). */
   function pruneOverrides() {
@@ -563,6 +597,16 @@
       safeSet(out, keys[i], copyOverride(map[keys[i]]));
     }
     return out;
+  }
+
+  function copyLogoImage(img) {
+    return img ? { name: img.name, type: img.type, base64: img.base64, wPx: img.wPx, hPx: img.hPx } : null;
+  }
+
+  function sameLogoImage(a, b) {
+    if (!a || !b) return a === b;
+    return a.name === b.name && a.type === b.type && a.base64 === b.base64 &&
+      a.wPx === b.wPx && a.hPx === b.hPx;
   }
 
   function copyLogo(l) {
@@ -716,6 +760,26 @@
     emit('sheet:changed', { sheetPreset: sheetPreset });
   }
 
+  function logoImagePayload() {
+    return { type: 'logoImage:changed', logoImage: copyLogoImage(logoImage) };
+  }
+
+  /* Returns whether the value in memory is now what storage holds. A write can fail on
+     quota with a large logo; the image is kept in memory either way, so it still prints
+     for this visit. */
+  function changedLogoImage() {
+    var saved;
+    if (logoImage) {
+      saved = writeJson(KEY_LOGO_IMAGE, logoImage);
+    } else {
+      removeKey(KEY_LOGO_IMAGE);
+      saved = readRaw(KEY_LOGO_IMAGE) === null;
+    }
+    notify(logoImagePayload);
+    emit('logoImage:changed', { logoImage: copyLogoImage(logoImage) });
+    return saved;
+  }
+
   function changedLogo() {
     writeJson(KEY_LOGO, logo);
     notify(logoPayload);
@@ -766,6 +830,12 @@
     } catch (err) {
       console.warn('[BadgeStore] logo config unreadable — using the default.', err);
       logo = normalizeLogo(null, logoDefault());
+    }
+    try {
+      logoImage = normalizeLogoImage(readJson(KEY_LOGO_IMAGE, null));
+    } catch (err) {
+      console.warn('[BadgeStore] logo image unreadable — treating it as no logo.', err);
+      logoImage = null;
     }
     try {
       // Overrides whose attendee is gone never come back; drop them at the door and
@@ -1170,6 +1240,31 @@
       return copyLogo(logo);
     },
 
+    // ---- uploaded logo image --------------------------------------------------
+    /* { name, type, base64, wPx, hPx }, or null when no logo is uploaded. */
+    getLogoImage: function getLogoImage() {
+      ensureLoaded();
+      return copyLogoImage(logoImage);
+    },
+
+    /* Replace the logo (null removes it). Returns { ok, saved }:
+         ok    false — the value was not a valid logo, and nothing changed
+         saved false — it is in use for this visit but could not be written to storage
+                       (usually quota: there is no size cap), so it is gone on reload. */
+    setLogoImage: function setLogoImage(img) {
+      ensureLoaded();
+      var next = null;
+      if (img !== null && img !== undefined) {
+        next = normalizeLogoImage(img);
+        if (!next) return { ok: false, saved: false };
+      }
+      if (sameLogoImage(next, logoImage)) {
+        return { ok: true, saved: next ? readRaw(KEY_LOGO_IMAGE) !== null : readRaw(KEY_LOGO_IMAGE) === null };
+      }
+      logoImage = next;
+      return { ok: true, saved: changedLogoImage() };
+    },
+
     // ---- nuke ----------------------------------------------------------------
     /*
      * Wipe everything, then PROVE it. Removes every key under the prefix (scanned, not
@@ -1195,6 +1290,7 @@
       logo = normalizeLogo(null, logoDefault()); // back to {enabled:true, wIn:1, hIn:1, pos:'bottomRight'}
       sheetPreset = sheetPresetDefault();
       align = alignDefault(); // back to 'left'
+      logoImage = null;
       loaded = true; // state is authoritative now; don't re-read on next access
       warnedWrite = false;
 
@@ -1204,12 +1300,14 @@
       notify(logoPayload);
       notify(sheetPayload);
       notify(alignPayload);
+      notify(logoImagePayload);
       emit('data:changed', { attendees: [] });
       emit('override:changed', { id: null, overrides: {} });
       emit('page:changed', { pageIndex: 0 });
       emit('logo:changed', { logo: copyLogo(logo) });
       emit('sheet:changed', { sheetPreset: sheetPreset });
       emit('align:changed', { align: align });
+      emit('logoImage:changed', { logoImage: null });
 
       if (survivors.length) {
         console.warn('[BadgeStore] clearAll() FAILED to delete ' + survivors.length +
@@ -1240,7 +1338,8 @@
       pageIndex: KEY_PAGE,
       logo: KEY_LOGO,
       sheetPreset: KEY_SHEET,
-      align: KEY_ALIGN
+      align: KEY_ALIGN,
+      logoImage: KEY_LOGO_IMAGE
     },
     PREFIX: PREFIX,
 

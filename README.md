@@ -50,9 +50,10 @@ stock. If everything is shifted or shrunk, a scaling setting is still on.
 **Everything stays in your browser, on your machine.**
 
 - Attendee names, titles, companies, your font-size tweaks, and your sheet settings are saved
-  in the browser's **`localStorage`** under six keys — `lsuite.badges.attendees`,
+  in the browser's **`localStorage`** under seven keys — `lsuite.badges.attendees`,
   `lsuite.badges.overrides`, `lsuite.badges.pageIndex`, `lsuite.badges.logo`,
-  `lsuite.badges.sheetPreset`, and `lsuite.badges.align`. That is a small storage area
+  `lsuite.badges.sheetPreset`, `lsuite.badges.align`, and `lsuite.badges.logoImage` (an
+  uploaded logo, if you add one). That is a small storage area
   belonging to this one page in this one browser. **Clear all data removes every one of them**
   (and anything else stored under the `lsuite.badges.` prefix).
 - **Zero network requests at runtime.** There is no `fetch`, no `XMLHttpRequest`, no
@@ -261,6 +262,19 @@ What happens to their position depends on the alignment you chose:
 
 The preview marks the reserved corner as a screen-only guide; **nothing is drawn there in the
 PDF**, because the logo is already physically on the badge.
+
+**Uploading a logo (blank stock)** — if your stock has no logo printed on it, click
+**Upload logo…** under the reserve settings and pick a PNG or JPG. It prints in the reserved
+corner of every badge that has an attendee, shrunk to fit with **1/8″ clear** on every side
+(so printer drift can't clip it at the die cut), never stretched, and centred. It follows the
+**Corner**, **Width** and **Height** you set. The preview shows it exactly where it will print.
+
+- It only prints while the reserve is ticked, and needs a reserve bigger than 0.25″ to have
+  room. The panel tells you if either is stopping it.
+- It is saved in this browser like everything else — never uploaded anywhere. **Remove logo**
+  or **Clear all data** deletes it. There is no size limit; if a file is too large for the
+  browser to save, it still works until you reload, and the panel says so.
+- **The Word export does not include it** — the corner is left empty there. Print from the PDF.
 
 **Sheet layout** — where the whole 2 x 3 grid sits on the page. It moves the grid, not the badge
 contents. Two options:

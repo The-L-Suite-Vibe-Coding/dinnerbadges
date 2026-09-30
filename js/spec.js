@@ -83,6 +83,18 @@
     LOGO_POSITIONS: ['bottomRight', 'topRight', 'topLeft'],
     LOGO_POSITION_DEFAULT: 'bottomRight',
 
+    // ---- uploaded logo image (added 2026-09-30) ----------------------------
+    // For blank stock: an optional PNG/JPEG the user uploads is PRINTED inside the
+    // reserve above, on every badge that has an attendee. No image uploaded means
+    // nothing is drawn and the reserve stays a pure keep-out, exactly as before.
+    // The image is shrunk to fit inside the reserve with LOGO_IMAGE_PAD_PT (1/8 in)
+    // clear on every side — the reserve is flush to the raw cell edge, i.e. to the
+    // die cut, and a logo printed right to that edge clips on any printer drift —
+    // never stretched, and centred in whatever room is left. The one owner of that
+    // arithmetic is BadgeLayout.logoImageRect().
+    LOGO_IMAGE_PAD_PT: 9,
+    LOGO_IMAGE_TYPES: ['png', 'jpeg'],
+
     // ---- horizontal alignment -------------------------------------------
     // Sheet-wide, not per badge. LEFT is the default: all four lines flush to a
     // common left edge at INSET (14.4 pt), never to 0 — the 0.2" inset is the
@@ -248,6 +260,7 @@
   Object.freeze(BadgeSpec.MAX_LINES);
   Object.freeze(BadgeSpec.LOGO_DEFAULT);
   Object.freeze(BadgeSpec.LOGO_POSITIONS);
+  Object.freeze(BadgeSpec.LOGO_IMAGE_TYPES);
   Object.freeze(BadgeSpec.ALIGNS);
   Object.freeze(BadgeSpec.SHEET_PRESETS.sampleTopLeft);
   Object.freeze(BadgeSpec.SHEET_PRESETS.avery);

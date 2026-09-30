@@ -2,8 +2,8 @@
  * js/sheet-settings.js - window.BadgeSheetSettings
  *
  * The SHEET-WIDE settings panel: text alignment, the corner logo reserve (on/off,
- * which corner, and its size), and which sheet layout (grid origin) the badges are
- * printed on. One setting each, for every badge on every page - nothing here is
+ * which corner, and its size), an optional uploaded logo image printed inside that
+ * reserve, and which sheet layout (grid origin) the badges are printed on. One setting each, for every badge on every page - nothing here is
  * ever per attendee.
  *
  * WHY THIS IS ITS OWN FILE. All of it used to live inside js/overrides.js, whose
@@ -107,6 +107,10 @@
   /* -------------------------------------------------------------------- state */
 
   var logoEls = null;      // built DOM references for this panel, or null before mount()
+  /* Outcome of the last upload/remove, shown under the logo buttons until the next one.
+     `imageSaved` starts true: a logo present at page load came OUT of storage. */
+  var imageError = '';
+  var imageSaved = true;
   var busy = false;        // re-entrancy guard: our writes come back to us as store events
   var unsubscribe = null;
 
@@ -567,7 +571,9 @@
     panel.appendChild(subLabel('Logo reserve', true));
     panel.appendChild(
       el('p', {
-        text: 'For pre-printed stock with a logo printed in a corner of each badge.',
+        text:
+          'Keeps one corner of every badge clear of text — for stock with a pre-printed ' +
+          'logo, or for a logo you upload below.',
         className: 'ss-note-gap'
       })
     );
@@ -587,7 +593,7 @@
       commitLogo({ enabled: refs.toggle.checked === true });
     });
     toggleRow.appendChild(refs.toggle);
-    toggleRow.appendChild(el('span', { text: 'Reserve space for the pre-printed logo' }));
+    toggleRow.appendChild(el('span', { text: 'Reserve a corner for the logo' }));
     panel.appendChild(toggleRow);
 
     // ---- corner -------------------------------------------------------
@@ -621,6 +627,45 @@
       className: 'ss-note-loose'
     });
     panel.appendChild(refs.note);
+
+    // ---- uploaded logo image (blank stock) -----------------------------
+    // A real <input type=file> does the picking; it stays hidden and a normal button
+    // opens it, so the control looks like every other button in the panel.
+    panel.appendChild(
+      el('p', {
+        text:
+          'Printing on blank stock? Upload the logo (PNG or JPG) and it prints in that ' +
+          'corner of every badge. It stays in this browser — it is never uploaded anywhere.',
+        className: 'ss-note-loose'
+      })
+    );
+    refs.imageInput = el('input', {
+      id: 'logo-image-file',
+      attrs: { type: 'file', accept: 'image/png,image/jpeg', 'aria-hidden': 'true' },
+      style: { display: 'none' }
+    });
+    refs.imageInput.type = 'file';
+    refs.imageInput.addEventListener('change', function () {
+      var file = refs.imageInput.files && refs.imageInput.files[0];
+      // Cleared at once so choosing the same file again (after Remove) still fires.
+      refs.imageInput.value = '';
+      if (file) uploadLogoImage(file);
+    });
+    refs.imageRow = el('div', { className: 'ss-logo-image' });
+    refs.uploadBtn = button('Upload logo…', 'Upload a logo image to print on every badge',
+      function () { refs.imageInput.click(); });
+    refs.removeBtn = button('Remove logo', 'Remove the uploaded logo', function () {
+      commitLogoImage(null);
+    });
+    refs.imageRow.appendChild(refs.imageInput);
+    refs.imageRow.appendChild(refs.uploadBtn);
+    refs.imageRow.appendChild(refs.removeBtn);
+    panel.appendChild(refs.imageRow);
+    refs.imageNote = el('p', {
+      attrs: { 'data-role': 'logo-image-note' },
+      className: 'ss-note-after'
+    });
+    panel.appendChild(refs.imageNote);
 
     // ---- sheet layout preset ------------------------------------------
     panel.appendChild(subLabel('Sheet layout', true));
@@ -824,6 +869,140 @@
     return true;
   }
 
+  /* ---------------------------------------------------- uploaded logo image --- */
+
+  /* PNG and JPEG by their first bytes, not the filename or the type the OS guesses:
+     a "logo.png" that is really a JPEG is common, and pdf-lib needs the truth. */
+  function sniffImageType(bytes) {
+    if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 &&
+        bytes[2] === 0x4e && bytes[3] === 0x47) return 'png';
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      return 'jpeg';
+    }
+    return null;
+  }
+
+  function bytesToBase64(bytes) {
+    var bin = '';
+    // In slices: one String.fromCharCode call over a multi-megabyte array overflows
+    // the argument limit.
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+  }
+
+  /* Pixel size, read by letting the browser decode the image. Only the ratio is ever
+     used, but storing it means the preview and the PDF never decode it themselves. */
+  function imageSize(dataUrl) {
+    return new Promise(function (resolve, reject) {
+      var img = new window.Image();
+      img.onload = function () { resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+      img.onerror = function () { reject(new Error('decode failed')); };
+      img.src = dataUrl;
+    });
+  }
+
+  function uploadLogoImage(file) {
+    return file.arrayBuffer()
+      .then(function (buf) {
+        var bytes = new Uint8Array(buf);
+        var type = sniffImageType(bytes);
+        if (!type) {
+          throw new Error('That file isn’t a PNG or JPG. Save the logo as a PNG (best) or JPG and upload it again.');
+        }
+        var base64 = bytesToBase64(bytes);
+        return imageSize('data:image/' + type + ';base64,' + base64).then(
+          function (size) {
+            return { name: file.name, type: type, base64: base64, wPx: size.w, hPx: size.h };
+          },
+          function () {
+            throw new Error('That image could not be opened. Try re-saving or re-exporting it, then upload it again.');
+          }
+        );
+      })
+      .then(commitLogoImage)
+      .catch(function (err) {
+        imageError = err && err.message ? err.message : 'That logo could not be read.';
+        renderLogo();
+      });
+  }
+
+  /* Write the logo (null removes it). The store owns persistence and emits the change
+     that repaints the preview; this only records the outcome for the note. */
+  function commitLogoImage(img) {
+    var d = deps();
+    if (!d) return false;
+    if (typeof d.store.setLogoImage !== 'function') {
+      imageError = 'This build cannot store a logo image.';
+      renderLogo();
+      return false;
+    }
+    var result;
+    try {
+      result = d.store.setLogoImage(img);
+    } catch (err) {
+      console.warn('[BadgeSheetSettings] BadgeStore.setLogoImage() threw:', err && err.message);
+      result = { ok: false, saved: false };
+    }
+    imageError = result.ok ? '' : 'That logo could not be used. Upload a PNG or JPG.';
+    imageSaved = result.saved === true;
+    renderLogo();
+    return result.ok;
+  }
+
+  function logoImageConfig(d) {
+    if (typeof d.store.getLogoImage !== 'function') return null;
+    try {
+      return d.store.getLogoImage();
+    } catch (err) {
+      return null;
+    }
+  }
+
+  /* The buttons and the sentence under them. Whether the logo fits is asked of
+     BadgeLayout.logoImageRect() with this panel's reserve — the same call the preview
+     and the PDF make — rather than re-deriving the padding here. */
+  function renderLogoImage(d, cfg, g) {
+    var img = logoImageConfig(d);
+    logoEls.uploadBtn.textContent = img ? 'Replace logo…' : 'Upload logo…';
+    logoEls.uploadBtn.disabled = typeof d.store.setLogoImage !== 'function';
+    logoEls.removeBtn.hidden = !img;
+
+    var note = logoEls.imageNote;
+    var name = img && img.name ? img.name : 'The logo';
+    if (imageError) {
+      note.textContent = imageError;
+      note.className = 'ss-note-after ss-note-error';
+      return;
+    }
+    note.className = 'ss-note-after';
+    if (!img) {
+      note.textContent = 'No logo uploaded — the corner is left blank.';
+      return;
+    }
+    if (!cfg.enabled) {
+      note.textContent = name + ' is uploaded but won’t print while the reserve is off. ' +
+        'Tick the box above to print it.';
+      return;
+    }
+    var fits = d.layout.logoImageRect &&
+      d.layout.logoImageRect(
+        { x0: g.reserveX0, y0: g.reserveY0, x1: g.reserveX1, y1: g.reserveY1 },
+        img.wPx, img.hPx
+      );
+    if (!fits) {
+      note.textContent = name + ' is uploaded, but the reserved corner is too small to ' +
+        'hold it with 1/8″ clear around it. Make the reserve larger than 0.25″.';
+      return;
+    }
+    note.textContent = 'Printing ' + name + ' in the reserved corner of every badge, ' +
+      'shrunk to fit with 1/8″ clear. ' +
+      (imageSaved ? 'Saved in this browser. ' :
+        'It’s too large to save in this browser, so it will be gone after a reload. ') +
+      'The Word export leaves the corner empty — print from the PDF.';
+  }
+
   function fmtIn(n) {
     var r = Math.round(n * 100) / 100;
     return String(r);
@@ -863,6 +1042,8 @@
       sel.value = g.pos;
       sel.disabled = !!cfg.unavailable || !cfg.enabled;
     }
+
+    renderLogoImage(d, cfg, g);
 
     var note = logoEls.note;
     empty(note);

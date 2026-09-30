@@ -376,6 +376,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .ss-note-after { margin: 6px 0 0; font-size: 11px; color: var(--ink-3); }
 .ss-note-gap { margin: 0 0 8px; font-size: 11px; color: var(--ink-3); }
 .ss-note-loose { margin: 8px 0 0; font-size: 11px; color: var(--ink-3); }
+.ss-logo-image { display: flex; gap: 8px; margin: 8px 0 0; }
+.ss-note-error { color: #a3231b; }
 .ss-toggle { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; color: var(--ink); }
 .ss-dims { display: flex; gap: 10px; align-items: flex-end; }
 .ss-dim { flex: 1 1 0; min-width: 0; }

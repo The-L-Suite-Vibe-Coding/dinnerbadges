@@ -83,6 +83,14 @@
  * cell guides). The guide is an out-of-flow <div>, never an SVG <text>, so it
  * cannot contribute geometry and cannot reach the PDF.
  *
+ * UPLOADED LOGO IMAGE (added 2026-09-30). When the user has uploaded a logo for blank
+ * stock (BadgeStore.getLogoImage()) and the reserve is on, it is drawn as an SVG
+ * <image> inside each occupied badge's own points-based <svg>, at
+ * BadgeLayout.logoImageRect(engine reserve, wPx, hPx) — the same call, with the same
+ * reserve, that js/pdf.js makes. Unlike the dashed guide it is real ink, so it shows
+ * whether or not guides are on. Its href is a data: URL of the stored bytes (the
+ * image is already in memory; nothing is requested).
+ *
  * Affected lines (usually company/title for the default bottom-right corner) sit
  * 28.8 pt toward the far side of the name lines with a 1 in block, i.e. centre
  * 115.2 instead of 144 (172.8 for the top-left mirror). That is Julia's deliberate
@@ -605,6 +613,9 @@
 
     base.ok = true;
     base.lines = lines;
+    /* The ENGINE's reserve, not reservedRect()'s: the logo image is positioned from
+       exactly what layout() returned, as the PDF writer does. */
+    base.logoReserve = (result && result.logo && result.logo.enabled) ? result.logo.reserve : null;
     base.blockHeight = result ? result.blockHeight : 0;
     base.fits = !(result && result.fits === false);
     base.warnings = (result && result.warnings) || [];
@@ -730,8 +741,43 @@
     return g;
   }
 
+  /**
+   * The uploaded logo as an SVG <image> in the cell's points coordinate system, or
+   * null when there is no room for it. preserveAspectRatio is "none" because the
+   * rectangle is ALREADY fitted to the image's ratio by logoImageRect(); letting the
+   * browser fit it a second time is how screen and paper would come to differ.
+   */
+  function paintLogoImage(reserve, logoImage) {
+    var engine = window.BadgeLayout;
+    if (!reserve || !engine || typeof engine.logoImageRect !== 'function') return null;
+    var r = engine.logoImageRect(reserve, logoImage.wPx, logoImage.hPx);
+    if (!r) return null;
+    var img = document.createElementNS(SVG_NS, 'image');
+    img.setAttribute('x', String(r.x));
+    img.setAttribute('y', String(r.y));
+    img.setAttribute('width', String(r.w));
+    img.setAttribute('height', String(r.h));
+    img.setAttribute('preserveAspectRatio', 'none');
+    img.setAttribute('href', 'data:image/' + logoImage.type + ';base64,' + logoImage.base64);
+    img.setAttribute('data-logo-image', '1');
+    return img;
+  }
+
+  /* The uploaded logo, or null. Guarded: a missing or throwing store means "no logo",
+     never a broken preview. */
+  function readLogoImage() {
+    var S = store();
+    if (!S || typeof S.getLogoImage !== 'function') return null;
+    try {
+      return S.getLogoImage() || null;
+    } catch (err) {
+      console.error('[BadgePreview] BadgeStore.getLogoImage() threw:', err);
+      return null;
+    }
+  }
+
   /** Paint one badge into one absolutely-positioned cell. */
-  function paintCell(indexOnPage, attendee, overrides, opts, presetKey) {
+  function paintCell(indexOnPage, attendee, overrides, opts, presetKey, logoImage) {
     var origin = cellOrigin(indexOnPage, presetKey);
     var override = (overrides && attendee && attendee.id !== undefined)
       ? (overrides[attendee.id] || null) : null;
@@ -774,11 +820,16 @@
     svg.setAttribute('aria-hidden', 'true');
 
     for (var i = 0; i < model.lines.length; i++) svg.appendChild(paintLine(model.lines[i]));
+    /* Only on badges with an attendee, as in the PDF: an empty cell prints nothing. */
+    if (logoImage) {
+      var logoNode = paintLogoImage(model.logoReserve, logoImage);
+      if (logoNode) svg.appendChild(logoNode);
+    }
     cell.appendChild(svg);
     return cell;
   }
 
-  function buildSheet(attendees, overrides, pageIndex, opts, presetKey) {
+  function buildSheet(attendees, overrides, pageIndex, opts, presetKey, logoImage) {
     var sheet = document.createElement('div');
     sheet.className = 'sheet bp-sheet';
     /* The sheet outline is always the full 612 x 792 pt page; only the grid inside
@@ -798,7 +849,8 @@
     var per = perPage();
     var start = pageIndex * per;
     for (var i = 0; i < per; i++) {
-      sheet.appendChild(paintCell(i, attendees[start + i] || null, overrides, opts, presetKey));
+      sheet.appendChild(paintCell(i, attendees[start + i] || null, overrides, opts, presetKey,
+        logoImage));
     }
     return sheet;
   }
@@ -893,6 +945,8 @@
       /* Same for the sheet preset: read once, so all six cells of a sheet are
          placed against the same grid origin. */
       var presetKey = sheetPresetKey();
+      /* Read once per paint too. Only drawn inside a reserve, as in the PDF. */
+      var logoImage = opts.logo && opts.logo.enabled ? readLogoImage() : null;
       var pages = pageCount(attendees.length);
 
       /* Clamp a stale index (rows deleted while on a later page) and push the
@@ -905,7 +959,7 @@
       var onPage = Math.max(0, Math.min(perPage(), attendees.length - clamped * perPage()));
 
       root.textContent = '';
-      root.appendChild(buildSheet(attendees, overrides, clamped, opts, presetKey));
+      root.appendChild(buildSheet(attendees, overrides, clamped, opts, presetKey, logoImage));
       applyGuides();
 
       if (navRoot) {
@@ -982,6 +1036,7 @@
       bus.on('logo:changed', schedule);  // logo reserve toggled/resized/moved
       bus.on('sheet:changed', schedule); // sample-top-left <-> Avery grid placement
       bus.on('align:changed', schedule);  // left <-> center text alignment
+      bus.on('logoImage:changed', schedule); // uploaded logo added/replaced/removed
     } else {
       warnOnce('bus', 'window.BadgeBus is missing — relying on BadgeStore.subscribe alone.');
     }

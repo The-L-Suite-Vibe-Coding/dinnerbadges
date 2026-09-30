@@ -1690,6 +1690,97 @@ AN.setAlign('left');
 deepEq({ s: AN.getSheetPreset(), l: AN.getLogo().wIn }, { s: 'avery', l: 2 },
   'changing alignment leaves the other two settings alone');
 
+/* --------------------------------------------- 19. uploaded logo image (2026-09-30) */
+
+section('19. uploaded logo image: lsuite.badges.logoImage');
+(function () {
+  var IMG_KEY = 'lsuite.badges.logoImage';
+  var GOOD = { name: 'sponsor.png', type: 'png', base64: 'iVBORw0KGgo=', wPx: 200, hPx: 100 };
+  shim = makeShim();
+  globalThis.localStorage = shim;
+  var LI = freshStore();
+  LI.init();
+  eq(LI.KEYS.logoImage, IMG_KEY, 'KEYS.logoImage names the storage key');
+  eq(LI.getLogoImage(), null, 'no logo uploaded by default');
+  eq(shim._raw(IMG_KEY), undefined, 'and nothing is written for it until one is');
+
+  var events = [];
+  var off = LI.subscribe(function (c) { events.push(c.type); });
+  deepEq(LI.setLogoImage(GOOD), { ok: true, saved: true }, 'a valid logo is accepted and saved');
+  deepEq(LI.getLogoImage(), GOOD, 'and read back exactly');
+  deepEq(JSON.parse(shim._raw(IMG_KEY)), GOOD, 'it is what is on disk');
+  ok(events.indexOf('logoImage:changed') !== -1, 'subscribers hear logoImage:changed');
+  var got = LI.getLogoImage();
+  got.base64 = 'tampered';
+  eq(LI.getLogoImage().base64, GOOD.base64, 'getLogoImage returns a copy, not the stored object');
+
+  events = [];
+  var writes = shim.setItemCalls;
+  deepEq(LI.setLogoImage(JSON.parse(JSON.stringify(GOOD))), { ok: true, saved: true }, 're-setting the same logo is fine');
+  eq(shim.setItemCalls, writes, '... and costs no write');
+  eq(events.length, 0, '... and no notification');
+
+  deepEq(freshStore().getLogoImage(), GOOD, 'survives a reload');
+
+  // Rejections leave the current logo in place.
+  [
+    [{ name: 'x', type: 'gif', base64: 'AAAA', wPx: 1, hPx: 1 }, 'a type other than png/jpeg'],
+    [{ name: 'x', type: 'png', base64: '', wPx: 1, hPx: 1 }, 'empty bytes'],
+    [{ name: 'x', type: 'png', base64: 'not base64!', wPx: 1, hPx: 1 }, 'bytes that are not base64'],
+    [{ name: 'x', type: 'png', base64: 'AAAA', wPx: 0, hPx: 1 }, 'a zero width'],
+    [{ name: 'x', type: 'png', base64: 'AAAA', wPx: 1, hPx: '1' }, 'a height that is not a number'],
+    ['a string', 'a non-object'],
+    [[GOOD], 'an array']
+  ].forEach(function (c) {
+    deepEq(LI.setLogoImage(c[0]), { ok: false, saved: false }, 'rejected: ' + c[1]);
+  });
+  deepEq(LI.getLogoImage(), GOOD, 'after all of those, the uploaded logo is untouched');
+
+  // A hand-edited or corrupt value on disk reads as "no logo", never as junk.
+  [
+    '{not json',
+    '{"type":"png","base64":"AAAA","wPx":1}',
+    '{"type":"svg","base64":"AAAA","wPx":1,"hPx":1}',
+    '[1,2,3]'
+  ].forEach(function (raw) {
+    shim._put(IMG_KEY, raw);
+    eq(freshStore().getLogoImage(), null, 'corrupt value on disk reads as no logo: ' + raw);
+  });
+
+  // Too large for the quota (there is no size cap): kept for the visit, reported unsaved.
+  shim = makeShim();
+  globalThis.localStorage = shim;
+  var LQ = freshStore();
+  LQ.init();
+  LQ.addAttendee({ first: 'Ana', last: 'Rios', title: 'GC', company: 'Acme' });
+  shim.throwOnWrite = true;
+  deepEq(LQ.setLogoImage(GOOD), { ok: true, saved: false }, 'a quota failure: in use, but reported as NOT saved');
+  deepEq(LQ.getLogoImage(), GOOD, '... and still in memory for this visit');
+  shim.throwOnWrite = false;
+  eq(freshStore().getAttendees().length, 1, 'the attendee list saved before it is unaffected');
+
+  // Remove.
+  shim = makeShim();
+  globalThis.localStorage = shim;
+  var LR = freshStore();
+  LR.setLogoImage(GOOD);
+  deepEq(LR.setLogoImage(null), { ok: true, saved: true }, 'null removes the logo');
+  eq(LR.getLogoImage(), null, '... from memory');
+  eq(shim.getItem(IMG_KEY), null, '... and from disk');
+
+  // Clear all data takes the logo with it, and says so truthfully.
+  LR.setLogoImage(GOOD);
+  eq(LR.clearAll(), true, 'clearAll() succeeds with a logo uploaded');
+  eq(shim.getItem(IMG_KEY), null, 'clearAll() removes the uploaded logo from disk');
+  eq(LR.getLogoImage(), null, 'and from memory');
+  deepEq(prefixedKeys(shim), [], 'nothing under the prefix survives');
+  // The reserve settings and the image are independent.
+  LR.setLogo({ enabled: false });
+  LR.setLogoImage(GOOD);
+  eq(LR.getLogo().enabled, false, 'uploading a logo does not switch the reserve on by itself');
+  off();
+})();
+
 /* ------------------------------------------------------------------------ report */
 
 console.warn = realWarn;

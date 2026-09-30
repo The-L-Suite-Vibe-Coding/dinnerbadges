@@ -914,5 +914,44 @@
     };
   }
 
-  window.BadgeLayout = { layout: layout };
+  /**
+   * Where an uploaded logo image is drawn inside the reserve, CELL-RELATIVE points,
+   * y measured DOWN from the cell top (the same frame as every other number this
+   * module returns). `reserve` is { x0, y0, x1, y1 } — layout()'s own `logo.reserve`.
+   * `imgW` / `imgH` only matter as a ratio (pixels are fine).
+   *
+   * Fitted, never stretched: scaled to the largest size that leaves
+   * BadgeSpec.LOGO_IMAGE_PAD_PT clear on all four sides, then centred in the room
+   * that is left — a wide logo gets space above and below, a tall one either side.
+   *
+   * Returns null when there is nothing sensible to draw: no reserve, image
+   * dimensions that are not positive numbers, or a reserve too small to hold the
+   * padding (a 0.25 in reserve is exactly 2 x 9 pt, leaving no room). Callers draw
+   * nothing on null — they must not invent a size of their own.
+   *
+   * The ONE place this is computed: js/preview.js and js/pdf.js both call it with
+   * the reserve layout() returned, so the logo on screen and on paper cannot drift.
+   */
+  function logoImageRect(reserve, imgW, imgH) {
+    var S = window.BadgeSpec;
+    if (!reserve || !S) return null;
+    var w = Number(imgW);
+    var h = Number(imgH);
+    if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return null;
+    var pad = S.LOGO_IMAGE_PAD_PT;
+    var roomW = reserve.x1 - reserve.x0 - 2 * pad;
+    var roomH = reserve.y1 - reserve.y0 - 2 * pad;
+    if (!(roomW > 0) || !(roomH > 0)) return null;
+    var scale = Math.min(roomW / w, roomH / h);
+    var drawW = w * scale;
+    var drawH = h * scale;
+    return {
+      x: reserve.x0 + pad + (roomW - drawW) / 2,
+      y: reserve.y0 + pad + (roomH - drawH) / 2,
+      w: drawW,
+      h: drawH
+    };
+  }
+
+  window.BadgeLayout = { layout: layout, logoImageRect: logoImageRect };
 })();

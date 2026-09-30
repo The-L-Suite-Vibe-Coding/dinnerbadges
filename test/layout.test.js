@@ -2004,6 +2004,50 @@ var wasTall = box.window.BadgeLayout.layout(TALL, null, CENTERED);
 console.log('  the TALL fixture: two lines at ' + wasTall.appliedSizes.title + ' pt (block ' + r4(wasTall.blockHeight) + ') -> three lines at ' + tall.appliedSizes.title + ' pt (block ' + r4(tall.blockHeight) + ')');
 
 // ===========================================================================
+section('23. uploaded logo image — logoImageRect() (added 2026-09-30)');
+// Expected values worked by hand, not asked of the engine. Default reserve is the
+// bottom-right 1 in square: x 216..288, y 144..216. Less 9 pt (1/8 in) padding each
+// side leaves a 54 x 54 pt box starting at (225, 153).
+(function () {
+  var LIR = window.BadgeLayout.logoImageRect;
+  var BR = { x0: 216, y0: 144, x1: 288, y1: 216 };
+  function same(r, x, y, w, h) {
+    return !!r && Math.abs(r.x - x) < 1e-9 && Math.abs(r.y - y) < 1e-9 &&
+      Math.abs(r.w - w) < 1e-9 && Math.abs(r.h - h) < 1e-9;
+  }
+  function show(r) { return r ? '(' + r.x + ', ' + r.y + ') ' + r.w + 'x' + r.h : 'null'; }
+  ok(S.LOGO_IMAGE_PAD_PT === 9, 'the padding is 9 pt = 1/8 in', String(S.LOGO_IMAGE_PAD_PT));
+  var sq = LIR(BR, 500, 500);
+  ok(same(sq, 225, 153, 54, 54), 'a square logo fills the padded box exactly', show(sq));
+  // 2:1 -> 54 x 27, centred vertically: y = 153 + (54 - 27) / 2 = 166.5
+  var wide = LIR(BR, 400, 200);
+  ok(same(wide, 225, 166.5, 54, 27), 'a wide logo is fitted, not stretched, and centred top to bottom', show(wide));
+  // 1:2 -> 27 x 54, centred across: x = 225 + 13.5 = 238.5
+  var tall = LIR(BR, 100, 200);
+  ok(same(tall, 238.5, 153, 27, 54), 'a tall logo is fitted, not stretched, and centred side to side', show(tall));
+  ok(Math.abs(wide.w / wide.h - 2) < 1e-12 && Math.abs(tall.w / tall.h - 0.5) < 1e-12,
+    'the aspect ratio is kept exactly', (wide.w / wide.h) + ', ' + (tall.w / tall.h));
+  // Follows the reserve into the other corners, straight from layout()'s own reserve.
+  ['bottomRight', 'topRight', 'topLeft'].forEach(function (pos) {
+    var res = L.layout({ first: 'Ana', last: 'Rios', company: 'Acme', title: 'GC' }, null,
+      { logo: { enabled: true, wPt: 72, hPt: 72, pos: pos } });
+    var r = LIR(res.logo.reserve, 1, 1);
+    var rv = res.logo.reserve;
+    var inside = r && r.x >= rv.x0 + 9 - 1e-9 && r.x + r.w <= rv.x1 - 9 + 1e-9 &&
+      r.y >= rv.y0 + 9 - 1e-9 && r.y + r.h <= rv.y1 - 9 + 1e-9;
+    ok(inside, pos + ': the logo sits inside layout()\'s reserve with 9 pt clear all round', show(r));
+  });
+  // A 2 x 1.5 in reserve gives a 126 x 90 box; a square logo is limited by the height.
+  var big = LIR({ x0: 144, y0: 108, x1: 288, y1: 216 }, 10, 10);
+  ok(same(big, 144 + 9 + (126 - 90) / 2, 117, 90, 90), 'a larger, non-square reserve: fitted to the tighter side', show(big));
+  // Nothing to draw -> null, never an invented size.
+  ok(LIR({ x0: 270, y0: 198, x1: 288, y1: 216 }, 1, 1) === null, 'a 0.25 in reserve (exactly 2 x 9 pt) has no room: null');
+  ok(LIR(null, 1, 1) === null, 'no reserve: null');
+  ok(LIR(BR, 0, 10) === null && LIR(BR, 10, -1) === null && LIR(BR, NaN, 10) === null &&
+    LIR(BR, 'x', 10) === null, 'zero, negative or non-numeric image sizes: null');
+})();
+
+// ===========================================================================
 console.log('\n============================================');
 console.log(pass + ' passed, ' + fail + ' failed');
 console.log('============================================');

@@ -1397,3 +1397,83 @@ positions. Both exporters draw `layout()`'s numbers verbatim through code paths 
 change did not touch (the docx indent is `line.x`, which §12.3's tests pin down), and
 the existing rasterised checks still pass at the default position. Print one proof
 sheet before a real run on top-corner stock, as with any geometry change.
+
+## 13. Uploaded logo image, added 2026-09-30
+
+Julia asked for a logo upload that prints in the reserved corner, stored locally. Until now
+the reserve assumed **pre-printed** stock and drew nothing. The new behaviour is additive:
+with no logo uploaded, every sheet prints exactly what it printed before.
+
+### 13.1 The four decisions taken before building
+
+1. **Print it only if one is uploaded.** No upload → the reserve stays a pure keep-out for
+   pre-printed stock. An upload with the reserve **off** is kept but not drawn (there is no
+   corner kept clear of text to put it in); the panel says so.
+2. **Fitted with 1/8 in (9 pt) clear on every side**, never stretched, centred in the room
+   left. The reserve is flush to the raw cell edge — the die cut — so a logo printed right
+   to it would clip on any printer drift. It follows the reserve's corner and size.
+3. **Preview and PDF only.** The Word export leaves the corner empty; the panel note says
+   "print from the PDF", which the tool already recommends (decision 20).
+4. **No size cap.** A logo too large for the browser's storage quota still works for the
+   visit; `BadgeStore.setLogoImage()` returns `saved: false` and the panel says it will be
+   gone after a reload.
+
+### 13.2 Where each part lives
+
+| Concern | Owner |
+|---|---|
+| 9 pt padding, allowed types | `BadgeSpec.LOGO_IMAGE_PAD_PT`, `LOGO_IMAGE_TYPES` |
+| Where the image goes | `BadgeLayout.logoImageRect(reserve, imgW, imgH)` — the only place |
+| Persistence | `BadgeStore` key `lsuite.badges.logoImage`: `{ name, type, base64, wPx, hPx }` |
+| Picking and sniffing the file | `js/sheet-settings.js` (PNG/JPEG by first bytes, not name) |
+| Drawing | `js/preview.js` (SVG `<image>`) and `js/pdf.js` (`drawImage`) |
+
+Both writers pass `logoImageRect()` **the reserve that same badge's `layout()` call
+returned** (`res.logo.reserve`) and the stored pixel size, so screen and paper cannot
+disagree. The preview sets `preserveAspectRatio="none"` because the rectangle is already
+fitted; letting the browser fit it again would be a second implementation.
+
+The PDF embeds the image **once** and draws it by reference on every badge that has an
+attendee — not on empty cells, matching the text. The file grows by one image, not six.
+
+### 13.3 The geometry, by hand
+
+Default 1 in bottom-right reserve: x 216–288, y 144–216 (cell-relative, y down). Less
+9 pt each side leaves a 54 × 54 pt box at (225, 153).
+
+| Image ratio | Drawn rect | Why |
+|---|---|---|
+| 1:1 | (225, 153) 54 × 54 | fills the box |
+| 2:1 | (225, 166.5) 54 × 27 | width-limited; centred vertically, (54 − 27)/2 = 13.5 |
+| 1:2 | (238.5, 153) 27 × 54 | height-limited; centred across |
+| any, 0.25 in reserve | none | 18 − 2 × 9 = 0 pt of room: `null`, nothing drawn |
+
+### 13.4 What was verified
+
+- **Node suites: 30,607 checks, all green** (was 30,530): layout §23 (+12), store §19
+  (+35), pdf "uploaded logo image" (+21), preview §11 (+9).
+- **RASTER:** a solid-black 200 × 100 PNG on six badges lands at x 225.0–279.4,
+  y 166.3–193.7 in every cell (within one 200 dpi pixel of the table above), and in the
+  top-left reserve at 9–63 / 22.5–49.5. One image object in the file, six `Do` operators;
+  a JPEG across 14 attendees gives `[6, 6, 2]` placements.
+- **Text unchanged:** the draw list with a logo is byte-identical to the same export
+  without one. Reserve off, or a 0.25 in reserve, with a logo uploaded → the file passes the
+  existing text-only check (zero `Do` operators).
+- **The checks can fail:** with `LOGO_IMAGE_PAD_PT` set to 0, 9 layout checks and 8 pdf
+  checks go red (including the text-only check, which then sees `{"Do":6}`); restored,
+  all green.
+- **Browser (localhost):** upload → 5 logos on 5 attendees, none on the empty sixth cell,
+  visible with guides off; the preview's `<image>` is (225, 166.5) 54 × 27, the same
+  numbers the raster measured on paper; corner switch moves it; reserve off and 0.25 in
+  both show the right note and draw nothing; a PDF picked as a logo is refused with the
+  old logo kept; survives reload; Remove and Clear all data both empty the key.
+  `test/preview.browser.html` 86 / 86. Console clean.
+
+### 13.5 What is NOT verified here
+
+- **Nothing printed on physical stock.** The positions are measured in a rasterised PDF,
+  not on paper. One plain-paper proof, Fit to Page OFF, before real stock.
+- **Very large logos** were not tried against a real browser quota. The quota path is
+  tested with a throwing storage shim only. A logo that nearly fills the quota leaves less
+  room for the attendee list; the store keeps working in memory and warns in the console,
+  but the panel only reports on the logo's own save.

@@ -1503,6 +1503,188 @@ function checkMount() {
   }
 }
 
+// =========================================================================
+// uploaded logo image (added 2026-09-30)
+// =========================================================================
+
+/* A solid-black RGB PNG, built here so no image file needs committing. Black so the
+   raster scan below finds exactly the logo's footprint. */
+function makePng(w, h) {
+  var zlib = require('zlib');
+  var table = [];
+  for (var n = 0; n < 256; n++) {
+    var c = n;
+    for (var k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  function crc(buf) {
+    var c = 0xffffffff;
+    for (var i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+  function chunk(type, data) {
+    var len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    var td = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    var sum = Buffer.alloc(4); sum.writeUInt32BE(crc(td));
+    return Buffer.concat([len, td, sum]);
+  }
+  var ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 2; // 8-bit RGB
+  var raw = Buffer.alloc((w * 3 + 1) * h); // zero-filled: filter 0, black pixels
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))
+  ]);
+}
+
+// A 20 x 10 JPEG (red), inline for the same reason.
+var TINY_JPEG_B64 =
+  '/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKAC' +
+  'AAQAAAABAAAAFKADAAQAAAABAAAACgAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZ' +
+  'jwCyBOmACZjs+EJ+/8AAEQgACgAUAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIB' +
+  'AwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNE' +
+  'RUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfI' +
+  'ycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIB' +
+  'AgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpD' +
+  'REVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXG' +
+  'x8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAGxsbGxsbLxsbL0IvLy9CWUJCQkJZcFlZWVlZcIhwcHBwcHCI' +
+  'iIiIiIiIiKOjo6Ojo76+vr6+1dXV1dXV1dXV1f/bAEMBISMjNjI2XTIyXd+XfJff39/f39/f39/f39/f39/f39/f39/f39/f' +
+  '39/f39/f39/f39/f39/f39/f39/f39/f3//dAAQAAv/aAAwDAQACEQMRAD8Ao0UUVgeqFFFFAH//2Q==';
+
+var LOGO_PNG = { name: 'wide.png', type: 'png', base64: makePng(200, 100).toString('base64'), wPx: 200, hPx: 100 };
+
+/* `Do` operators per page — one per drawn image placement. */
+function doCountsPerPage(file) {
+  var L = global.PDFLib;
+  return L.PDFDocument.load(fs.readFileSync(file)).then(function (doc) {
+    var perPage = doc.getPages().map(function (page) {
+      var contents = page.node.Contents();
+      var refs = contents && typeof contents.asArray === 'function' ? contents.asArray() : [contents];
+      var n = 0;
+      refs.forEach(function (ref) {
+        var st = doc.context.lookup(ref);
+        if (!st) return;
+        var text = Buffer.from(L.decodePDFRawStream(st).decode()).toString('latin1');
+        n += operatorsIn(text).filter(function (t) { return t === 'Do'; }).length;
+      });
+      return n;
+    });
+    var images = 0;
+    doc.context.enumerateIndirectObjects().forEach(function (pair) {
+      var obj = pair[1];
+      var dict = obj && obj.dict;
+      if (dict && dict.get(L.PDFName.of('Subtype')) === L.PDFName.of('Image')) images++;
+    });
+    return { perPage: perPage, images: images };
+  });
+}
+
+function checkLogoImage() {
+  var six = fixture('six.json');
+  var preset = S.SHEET_PRESET_DEFAULT;
+  var origins = originsFor(preset);
+  var TOL = 0.75; // pt: two pixels at 200 dpi, for antialiased edges
+
+  head('uploaded logo image — PNG in the default 1 in bottom-right reserve');
+  return build(six, 'logo-image.pdf', { logo: LOGO_1IN, logoImage: LOGO_PNG })
+    .then(function (withImg) {
+      return build(six, 'logo-image-none.pdf', { logo: LOGO_1IN, logoImage: null })
+        .then(function (noImg) {
+          assert(drawListOf(withImg).join('\n') === drawListOf(noImg).join('\n'),
+            'the text is drawn exactly as without a logo (the image changes no layout)',
+            drawListOf(withImg).length + ' runs each');
+          return doCountsPerPage(withImg.file);
+        })
+        .then(function (counts) {
+          assert(counts.perPage[0] === 6, 'the image is drawn once on each of the 6 badges',
+            counts.perPage[0] + ' Do operator(s) on page 1');
+          assert(counts.images === 1, 'and stored ONCE in the file, however many badges use it',
+            counts.images + ' image object(s)');
+
+          // Where the ink physically is. Worked by hand: reserve x 216..288, y 144..216
+          // (cell-relative); less 9 pt padding -> a 54 x 54 box at (225, 153); a 2:1
+          // image -> 54 x 27, centred top to bottom -> y 166.5..193.5.
+          var R = raster(withImg.file, 1);
+          origins.forEach(function (o, i) {
+            var ink = R.scan(o[0] + 216, o[1] + 144, o[0] + 288, o[1] + 216);
+            var want = [o[0] + 225, o[1] + 166.5, o[0] + 279, o[1] + 193.5];
+            var okPos = ink.count > 0 &&
+              near(ink.x0, want[0], TOL) && near(ink.y0, want[1], TOL) &&
+              near(ink.x1, want[2], TOL) && near(ink.y1, want[3], TOL);
+            assert(okPos, 'RASTER: badge ' + (i + 1) + ' logo lands at x ' + want[0] + '..' + want[2] +
+              ', y ' + want[1] + '..' + want[3] + ' (1/8 in clear, 2:1 kept, centred)',
+              ink.count ? 'ink x ' + f(ink.x0) + '..' + f(ink.x1) + ', y ' + f(ink.y0) + '..' + f(ink.y1) : 'no ink');
+          });
+        });
+    })
+    .then(function () {
+      head('uploaded logo image — follows the corner (top left)');
+      return build(six, 'logo-image-topleft.pdf',
+        { logo: { enabled: true, wPt: 72, hPt: 72, pos: 'topLeft' }, logoImage: LOGO_PNG })
+        .then(function (res) {
+          // Reserve x 0..72, y 0..72 -> box (9, 9) 54 x 54 -> 54 x 27 at y 22.5..49.5.
+          var R = raster(res.file, 1);
+          var o = origins[3];
+          var ink = R.scan(o[0], o[1], o[0] + 72, o[1] + 72);
+          assert(ink.count > 0 && near(ink.x0, o[0] + 9, TOL) && near(ink.x1, o[0] + 63, TOL) &&
+            near(ink.y0, o[1] + 22.5, TOL) && near(ink.y1, o[1] + 49.5, TOL),
+            'RASTER: badge 4 logo sits in the top-left reserve with 1/8 in clear',
+            ink.count ? 'ink x ' + f(ink.x0) + '..' + f(ink.x1) + ', y ' + f(ink.y0) + '..' + f(ink.y1) : 'no ink');
+        });
+    })
+    .then(function () {
+      head('uploaded logo image — JPEG, and one per ATTENDEE across pages');
+      var fourteen = fixture('fourteen.json');
+      var jpeg = { name: 'tiny.jpg', type: 'jpeg', base64: TINY_JPEG_B64, wPx: 20, hPx: 10 };
+      return build(fourteen, 'logo-image-jpeg.pdf', { logo: LOGO_1IN, logoImage: jpeg })
+        .then(function (res) { return doCountsPerPage(res.file); })
+        .then(function (counts) {
+          var want = [];
+          for (var n = fourteen.length; n > 0; n -= S.PER_PAGE) want.push(Math.min(S.PER_PAGE, n));
+          assert(JSON.stringify(counts.perPage) === JSON.stringify(want),
+            'a JPEG logo is drawn on every badge with an attendee, and not on empty cells',
+            'per page ' + JSON.stringify(counts.perPage) + ', expected ' + JSON.stringify(want));
+          assert(counts.images === 1, 'still stored once', counts.images + ' image object(s)');
+        });
+    })
+    .then(function () {
+      head('uploaded logo image — nothing drawn where it cannot go');
+      return build(six, 'logo-image-reserve-off.pdf', { logo: { enabled: false }, logoImage: LOGO_PNG })
+        .then(function (res) { return checkTextOnly(res.file, 'image uploaded, reserve OFF'); })
+        .then(function () {
+          return build(six, 'logo-image-too-small.pdf',
+            { logo: { enabled: true, wPt: 18, hPt: 18 }, logoImage: LOGO_PNG });
+        })
+        .then(function (res) { return checkTextOnly(res.file, 'image uploaded, 0.25 in reserve (no room)'); });
+    })
+    .then(function () {
+      head('uploaded logo image — a broken file fails in words, not a blank export');
+      var broken = { name: 'x.png', type: 'png', base64: 'AAAA', wPx: 1, hPx: 1 };
+      return BadgePdf.exportPdf(six, {}, { logo: LOGO_1IN, logoImage: broken }).then(
+        function () { assert(false, 'a broken logo rejects the export', 'it resolved'); },
+        function (err) {
+          assert(/could not be read as a PNG or JPG/.test(err && err.message),
+            'a broken logo rejects the export with a plain-language message', err && err.message);
+        }
+      );
+    })
+    .then(function () {
+      head('uploaded logo image — resolveLogoImage()');
+      assert(BadgePdf.resolveLogoImage({ logoImage: null }) === null, 'explicit null: no logo');
+      assert(BadgePdf.resolveLogoImage({}) === null, 'opts without the key: no logo');
+      var saved = global.BadgeStore;
+      global.BadgeStore = { getLogoImage: function () { return LOGO_PNG; } };
+      assert(BadgePdf.resolveLogoImage() === LOGO_PNG, 'no opts: the store\'s logo');
+      global.BadgeStore = { getLogoImage: function () { throw new Error('boom'); } };
+      var realWarn = console.warn;
+      console.warn = function () {};
+      assert(BadgePdf.resolveLogoImage() === null, 'a throwing store: no logo, not a crash');
+      console.warn = realWarn;
+      if (saved === undefined) delete global.BadgeStore; else global.BadgeStore = saved;
+    });
+}
+
 function checkSourceHygiene() {
   head('source hygiene');
   var src = fs.readFileSync(path.join(SITE, 'js', 'pdf.js'), 'utf8');
@@ -2104,6 +2286,7 @@ build(fixture('six.json'), 'six.pdf', { logo: { enabled: false }, sheetPreset: '
   .then(function () { return checkLogoReserve(caps); })
   .then(function () { return checkThreeLineTitle(caps); })
   .then(function () { return checkInvariantMatrix(caps); })
+  .then(function () { return checkLogoImage(); })
   .then(function () {
     checkResolveLogo();
     checkResolveSheetPreset();

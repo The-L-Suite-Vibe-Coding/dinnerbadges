@@ -25,6 +25,13 @@
  * is already physically on the paper, and the exported PDF stays text-only. (The
  * preview draws a screen-only guide; that is js/preview.js's business, not ours.)
  *
+ * UPLOADED LOGO IMAGE (added 2026-09-30). The one exception to "text-only": when the
+ * user has uploaded a logo (BadgeStore.getLogoImage(), for BLANK stock) AND the
+ * reserve is on, the image is embedded ONCE and drawn on every badge that has an
+ * attendee, at BadgeLayout.logoImageRect(res.logo.reserve, ...) — the reserve that
+ * very badge's layout() call returned, so text and logo cannot disagree. No upload
+ * means no image, and the file is exactly as text-only as it always was.
+ *
  * Our whole job is to THREAD the setting into every layout() call as the third
  * argument, so the engine narrows and re-centers the affected lines identically for
  * preview and print. Forgetting to pass it is the one failure mode this
@@ -66,8 +73,8 @@
  *   avery          block at (18,72)  -> 18 pt left/right and 72 pt top/bottom blank
  * Either way only 2 columns x 3 rows of 288x216 cells are ever drawn into.
  *
- * No borders, no crop marks, no cut lines, no background fills, no logo, no header.
- * Text only.
+ * No borders, no crop marks, no cut lines, no background fills, no header. Text only,
+ * plus the uploaded logo image when there is one.
  */
 (function () {
   'use strict';
@@ -367,6 +374,42 @@
     return alignFromStore();
   }
 
+  /* ------------------------------------------------------------ logo image */
+
+  /* The uploaded logo, or null. Explicit opts win (`opts.logoImage`, null = none);
+     otherwise the live store value. A store that throws means "no logo", with a
+     warning — the badges themselves must still export. */
+  function resolveLogoImage(opts) {
+    if (opts && typeof opts === 'object') return opts.logoImage || null;
+    var store = window.BadgeStore;
+    if (!store || typeof store.getLogoImage !== 'function') return null;
+    try {
+      return store.getLogoImage() || null;
+    } catch (err) {
+      console.warn('BadgePdf: BadgeStore.getLogoImage() threw; exporting without the logo.', err);
+      return null;
+    }
+  }
+
+  /* Embed the logo once for the whole document; every badge then draws the same
+     image object. Any failure is reported in words a person can act on. */
+  function embedLogoImage(pdfDoc, img) {
+    return Promise.resolve()
+      .then(function () {
+        var bin = atob(img.base64);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return img.type === 'png' ? pdfDoc.embedPng(bytes) : pdfDoc.embedJpg(bytes);
+      })
+      .catch(function (err) {
+        console.warn('BadgePdf: logo embed failed.', err);
+        throw new Error(
+          'The logo image could not be read as a PNG or JPG. Upload it again in Sheet ' +
+            'settings, or remove it to export without a logo.'
+        );
+      });
+  }
+
   /* ------------------------------------------------------------------ build */
 
   /**
@@ -394,6 +437,9 @@
     // can land on different grid origins.
     var layoutOpts = { logo: resolveLogo(opts), align: resolveAlign(opts) };
     var presetKey = resolveSheetPreset(opts);
+    // Only printed inside a reserve: with the reserve off there is nowhere kept clear
+    // of text to put it, so an uploaded logo simply waits until it is switched on.
+    var logoImage = layoutOpts.logo.enabled ? resolveLogoImage(opts) : null;
 
     return PDFDocument.create().then(function (pdfDoc) {
       // Subsetting an arbitrary TTF requires fontkit.
@@ -431,9 +477,11 @@
       return Promise.all([
         embed(d.FD.regularTtfBase64, 'Regular'),
         embed(d.FD.boldTtfBase64, 'Bold'),
-        embed(d.FD.italicTtfBase64, 'Italic')
+        embed(d.FD.italicTtfBase64, 'Italic'),
+        logoImage ? embedLogoImage(pdfDoc, logoImage) : null
       ]).then(function (embedded) {
         var fonts = { regular: embedded[0], bold: embedded[1], italic: embedded[2] };
+        var logoXObject = embedded[3];
 
         var pageCount = Math.max(1, Math.ceil(list.length / S.PER_PAGE));
         for (var p = 0; p < pageCount; p++) {
@@ -464,6 +512,20 @@
                 // No lineHeight and no maxWidth on purpose: either one would let
                 // pdf-lib re-wrap or re-space text the fit engine already decided.
               });
+            }
+
+            if (logoXObject && res.logo && res.logo.enabled) {
+              var r = d.LY.logoImageRect(res.logo.reserve, logoImage.wPx, logoImage.hPx);
+              if (r) {
+                // Same flip as the text, applied to the image's BOTTOM edge (y + h),
+                // because pdf-lib places an image by its lower-left corner.
+                page.drawImage(logoXObject, {
+                  x: cell.x + r.x,
+                  y: S.PAGE_H - (cell.y + r.y + r.h),
+                  width: r.w,
+                  height: r.h
+                });
+              }
             }
           }
         }
@@ -618,6 +680,7 @@
     resolveLogo: resolveLogo,
     resolveSheetPreset: resolveSheetPreset,
     resolveAlign: resolveAlign,
+    resolveLogoImage: resolveLogoImage,
     FILENAME: DEFAULT_FILENAME
   };
 })();
