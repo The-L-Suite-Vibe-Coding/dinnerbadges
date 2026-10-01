@@ -1051,6 +1051,62 @@ var editNoPos = I.buildEditRow(
 ok(editNoPos.textContent.indexOf('p') === -1 || true,
   'omitting the index is still supported (no crash)');
 
+group('18. Entry form on a phone keyboard (added 2026-09-30)');
+
+(function () {
+  var focused = null;
+  Element.prototype.focus = function () { focused = this; };
+  function find(node, pred) {
+    var all = allElements(node);
+    for (var i = 0; i < all.length; i++) if (pred(all[i])) return all[i];
+    return null;
+  }
+  function byId(root, id) { return find(root, function (e) { return e.getAttribute('id') === id; }); }
+  function grid(root) { return find(root, function (e) { return e.className === 'entry-grid'; }); }
+  function pressEnter(root, input) {
+    grid(root).listeners.keydown.forEach(function (fn) {
+      fn({ key: 'Enter', target: { id: input.getAttribute('id') }, preventDefault: function () {} });
+    });
+  }
+  var added = [];
+  fakeWindow.BadgeStore = {
+    addAttendee: function (rec) { added.push(rec); return rec; },
+    getAttendees: function () { return added; }
+  };
+
+  var root = new Element('div');
+  I.mountEntryForm(root);
+  var first = byId(root, 'entry-first');
+  var company = byId(root, 'entry-company');
+  ok(first.getAttribute('autocapitalize') === 'words', 'names are auto-capitalised on phone keyboards');
+  ok(first.getAttribute('enterkeyhint') === 'next' && company.getAttribute('enterkeyhint') === 'done',
+    'the keyboard shows "Next" on the first three fields and "Done" on the last');
+  ok(first.getAttribute('spellcheck') === 'false', 'no spellcheck squiggles under names');
+
+  // Mouse and keyboard (no matchMedia, or pointer: fine): Enter anywhere adds, as before.
+  fakeWindow.matchMedia = function () { return { matches: false }; };
+  first.value = 'Juno';
+  pressEnter(root, first);
+  ok(added.length === 1 && added[0].first === 'Juno', 'desktop: Enter in the FIRST field still adds the badge',
+    added.length + ' added');
+
+  // Touchscreen: Enter walks the fields, and the last one adds.
+  fakeWindow.matchMedia = function (q) { return { matches: q === '(pointer: coarse)' }; };
+  first.value = 'Ada';
+  pressEnter(root, first);
+  ok(added.length === 1 && focused === byId(root, 'entry-last'),
+    'phone: Enter in First moves to Last and adds nothing', added.length + ' added');
+  pressEnter(root, byId(root, 'entry-title'));
+  ok(focused === company, 'phone: Enter in Title moves to Company');
+  pressEnter(root, company);
+  ok(added.length === 2 && added[1].first === 'Ada', 'phone: Enter in the last field adds the badge',
+    added.length + ' added');
+
+  delete fakeWindow.matchMedia;
+  delete fakeWindow.BadgeStore;
+  delete Element.prototype.focus;
+})();
+
 /* ===================================================================== *
  * summary
  * ===================================================================== */

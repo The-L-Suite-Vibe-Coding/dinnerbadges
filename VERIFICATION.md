@@ -1477,3 +1477,62 @@ Default 1 in bottom-right reserve: x 216–288, y 144–216 (cell-relative, y do
   tested with a throwing storage shim only. A logo that nearly fills the quota leaves less
   room for the attendee list; the store keeps working in memory and warns in the console,
   but the panel only reports on the logo's own save.
+
+## 14. Phone layout, added 2026-09-30
+
+Julia asked for a mobile-optimised version at the same address: CSV import de-prioritised,
+Word export removed, attendee entry at the top and full width, the sheet preview shrunk so
+there is no panning, plus bigger taps, a phone keyboard flow, a pinned Export PDF, and
+sharing steps for iPhone and Android.
+
+### 14.1 How it is built
+
+- **One breakpoint, `max-width: 700px`** (phones; tablets and laptops never match), in
+  `styles.css`, mirrored as `PHONE_QUERY` in `app.js`. No engine, store, preview or PDF
+  code changed.
+- **Reordering without moving DOM:** `.side-panel` and `.panel-page` become
+  `display: contents`, so their sections and the preview column are items of one flex
+  column and CSS `order` places the preview straight under the attendee list. The hidden
+  tab page still disappears (`.panel-page[hidden]` is `display: none !important`).
+- **Preview fit:** the sheet is still drawn at `BadgePreview`'s single `SCALE` (1.25), so
+  every number in it is unchanged; `app.js` sets `--fit = min(1, available / 765)` and
+  sizes `#preview-root` to the scaled sheet, and CSS applies `transform: scale(var(--fit))`.
+  On a 375 px screen: 343 × 444 px, `--fit` ≈ 0.448.
+- **CSV import** sits in `<details id="csv-details">`: always open with its summary hidden
+  above 700 px, folded on a phone.
+- **Keyboard:** entry inputs carry `autocapitalize="words"`, `autocorrect="off"`,
+  `spellcheck="false"`, `enterkeyhint` next/done. Enter moves to the next field only when
+  `(pointer: coarse)` matches — a finger, i.e. an on-screen keyboard — so a laptop's Enter
+  still adds from any field.
+- **Taps:** fields 16 px (below that iOS Safari zooms the page on focus), buttons 44 px
+  minimum, list/nudge buttons 36 px.
+- **Export PDF** is `position: fixed` at the bottom with the safe-area inset
+  (`viewport-fit=cover` added to the viewport meta); `[data-badge-docx-export]` is hidden.
+
+### 14.2 What was verified
+
+- Node: input §18 (+7): attributes present; Enter in First adds on desktop; on a coarse
+  pointer First → Last, Title → Company, and Company adds. Total 30,614, all green.
+- Browser at 375 × 812 (mobile emulation, coarse pointer): no horizontal scroll
+  (`scrollWidth` 375); preview 343 × 444; CSV folded with its heading visible; Word hidden;
+  Export bar pinned, 343 px wide; field text 16 px, Add button 44 px; Sheet settings tab
+  keeps the preview and the logo upload, and hides the pinned bar (it belongs to the
+  Badges tab); keyboard flow as above in a real DOM.
+- Browser at 1024 and 1280: unchanged — Word shown, CSV open with no summary, share steps
+  hidden, sheet 765 px, fields 13 px, Enter adds from First; two-column layout at 1280.
+- `test/preview.browser.html` 86 / 86. Console clean.
+
+### 14.3 What is NOT verified here
+
+- **No real phone.** Emulation checks layout and touch, not iOS Safari's own quirks.
+- **The sharing steps** follow current iOS Safari / Chrome and Android Chrome menus, which
+  move between versions.
+
+### 14.4 After Julia tested on her own iPhone
+
+Over the local network on a real phone: **Mail and AirDrop worked; Share → Slack did
+not.** The steps now offer Mail and AirDrop on iPhone and email only on Android (no
+AirDrop there), retitled "How to send the PDF to your computer". The per-badge font-size
+override is also hidden on phones (`#override-panel { display: none }`) to keep the phone
+version simple; stored nudges still reach the PDF, which reads them from the store.
+Android has not been tried on a real device.

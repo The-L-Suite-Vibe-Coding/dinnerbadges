@@ -160,6 +160,52 @@
     show(start, false);
   }
 
+  /* ---------------------------------------------------------- phone layout */
+
+  /* Must match the @media rule in styles.css. The CSS does the rearranging; this only
+     does the two things CSS cannot: fold the CSV import away, and scale the sheet
+     preview to the screen width. */
+  var PHONE_QUERY = '(max-width: 700px)';
+
+  function initPhoneLayout() {
+    if (typeof window.matchMedia !== 'function') return;
+    var phone = window.matchMedia(PHONE_QUERY);
+    var csv = document.getElementById('csv-details');
+    var root = document.getElementById('preview-root');
+    var col = document.getElementById('preview-col');
+
+    /* The sheet is still drawn at BadgePreview's one scale (so every number in it is
+       the engine's); on a phone it is shrunk as a whole with a CSS transform, and the
+       root is sized to the shrunk sheet so nothing below it has to move around. */
+    function fitPreview() {
+      if (!root) return;
+      var P = window.BadgePreview;
+      if (!phone.matches || !P || typeof P.sheetSizePx !== 'function' || !col) {
+        root.style.removeProperty('--fit');
+        root.style.width = '';
+        root.style.height = '';
+        return;
+      }
+      var size = P.sheetSizePx();
+      var avail = col.clientWidth - 32; // .preview-col-inner's 16px padding, both sides
+      var fit = Math.min(1, avail / size.w);
+      root.style.setProperty('--fit', String(fit));
+      root.style.width = size.w * fit + 'px';
+      root.style.height = size.h * fit + 'px';
+    }
+
+    function apply() {
+      // Folded on a phone, always open elsewhere (its summary is hidden there).
+      if (csv) csv.open = !phone.matches;
+      fitPreview();
+    }
+
+    if (typeof phone.addEventListener === 'function') phone.addEventListener('change', apply);
+    else if (typeof phone.addListener === 'function') phone.addListener(apply);
+    window.addEventListener('resize', fitPreview);
+    apply();
+  }
+
   function boot() {
     for (var i = 0; i < MOUNTS.length; i++) mountOne(MOUNTS[i]);
     try {
@@ -167,6 +213,12 @@
     } catch (err) {
       // A broken tab strip must not take the mounted app down with it.
       console.error('[app] initTabs() threw:', err);
+    }
+    try {
+      initPhoneLayout();
+    } catch (err) {
+      // The desktop layout needs none of this; never let it take the app down.
+      console.error('[app] initPhoneLayout() threw:', err);
     }
   }
 

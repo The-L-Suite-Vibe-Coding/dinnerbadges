@@ -45,6 +45,25 @@ stock. If everything is shifted or shrunk, a scaling setting is still on.
 
 ---
 
+## On a phone
+
+The same address works on a phone; below 700 px wide the page rearranges itself. Nothing
+about the badges changes — same fit engine, same PDF.
+
+- **Add attendee** is at the top and fills the screen width. On the phone keyboard, names
+  are capitalised automatically and **Next** moves down the fields; the last one adds the
+  badge. (With a mouse and keyboard, Enter in any field adds, as before.)
+- The **sheet preview** is shrunk to fit the screen width, right under the attendee list, so
+  there's no panning around. It is exactly the laptop preview, scaled down.
+- **Export PDF** is pinned to the bottom of the screen. The Word export isn't offered on a
+  phone.
+- **Import a CSV file** is folded away under its own heading — tap to open it.
+- The per-badge **font-size override** is not shown on a phone, to keep it simple. Nudges
+  made on a laptop still apply to the PDF.
+- **How to send the PDF to your computer** has step-by-step instructions: Mail or AirDrop
+  on iPhone, email on Android. (Sharing to Slack from a phone does not attach the file
+  reliably, so it isn't suggested.)
+
 ## Privacy — where the data lives
 
 **Everything stays in your browser, on your machine.**

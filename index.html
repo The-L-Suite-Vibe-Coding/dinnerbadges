@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Badge Sheet Builder</title>
 <!-- Inter @font-face lives in fonts/inter-face.css (owned by the fonts item).
      If that file is absent the page still works; the UI chrome falls back to system-ui. -->
@@ -44,9 +44,45 @@
     <div class="panel-page" id="page-badges" role="tabpanel" aria-labelledby="tab-badges">
       <div id="data-controls"></div>
       <div id="entry-form"></div>
-      <div id="csv-import"></div>
+      <!-- On a phone the CSV import is folded away (app.js closes this below 700px; it
+           is always open, with the summary hidden, on larger screens). -->
+      <details class="collapse-on-phone" id="csv-details" open>
+        <summary>Import a CSV file</summary>
+        <div id="csv-import"></div>
+      </details>
       <div id="bulk-paste"></div>
       <div id="attendee-list"></div>
+      <!-- Phones only (hidden by styles.css above 700px). Static text, no script. -->
+      <details class="phone-only share-help" id="share-help">
+        <summary>How to send the PDF to your computer</summary>
+        <p>Email or AirDrop work best. (Sharing to Slack from a phone does not attach the file
+          reliably.)</p>
+        <h3>iPhone</h3>
+        <ol>
+          <li>Tap <strong>Export PDF</strong>. In Safari, tap <strong>Download</strong> when asked.
+            In Chrome, tap <strong>Open in…</strong> on the bar that appears and skip to step 3.</li>
+          <li>Tap the download icon or page menu at the left of the address bar, then
+            <strong>Downloads</strong>, then <strong>badges.pdf</strong>. (It is also in the
+            <strong>Files</strong> app, under <strong>Downloads</strong>.)</li>
+          <li>Tap <strong>Share</strong> (the square with an arrow pointing up).</li>
+          <li><strong>AirDrop</strong> (to a Mac nearby): tap <strong>AirDrop</strong>, then your
+            Mac. It lands in the Mac's Downloads folder. The Mac needs to be awake, with AirDrop
+            on.<br>
+            <strong>Email:</strong> tap <strong>Mail</strong>, Gmail or Outlook. The PDF is
+            already attached; add the address and send.</li>
+        </ol>
+        <h3>Android</h3>
+        <ol>
+          <li>Tap <strong>Export PDF</strong>. When <strong>Downloaded</strong> appears at the
+            bottom of the screen, tap <strong>Open</strong>. (Missed it? Chrome menu
+            <strong>⋮</strong> → <strong>Downloads</strong> → <strong>badges.pdf</strong>, or the
+            <strong>Files</strong> app → <strong>Downloads</strong>.)</li>
+          <li>In the PDF viewer, tap <strong>Share</strong> (or <strong>⋮</strong> →
+            <strong>Share</strong>).</li>
+          <li>Tap <strong>Gmail</strong> or your mail app. The PDF is attached; add the address
+            and send.</li>
+        </ol>
+      </details>
       <div id="override-panel"></div>
     </div>
 

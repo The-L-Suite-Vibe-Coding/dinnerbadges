@@ -152,6 +152,7 @@ body {
    .panel-page so the tab strip itself is never treated as a section, with the bare
    .side-panel fallback kept for a module that appends straight into the panel. */
 .panel-page > div:not(:empty),
+.panel-page > details,
 .side-panel > div.panel-section:not(:empty) {
   margin-bottom: 20px;
   padding-bottom: 20px;
@@ -159,6 +160,7 @@ body {
 }
 
 .panel-page > div:not(:empty):last-child,
+.panel-page > details:last-child,
 .side-panel > div.panel-section:not(:empty):last-child {
   margin-bottom: 0;
   padding-bottom: 0;
@@ -403,3 +405,101 @@ button:disabled { opacity: 0.5; cursor: default; }
     border-top: 1px solid var(--line);
   }
 }
+
+/* ------------------------------------------------------------------ phones */
+/* Added 2026-09-30. Same page, same modules, same geometry: below 700px the layout
+   rearranges for a phone and nothing else changes. Tablets and laptops never match.
+
+   Two bits of markup exist only for this: the CSV import sits in a <details> that
+   app.js folds away on a phone, and the PDF sharing instructions are phone-only.
+   On larger screens both behave as if they were not there. */
+.collapse-on-phone > summary { display: none; }
+.phone-only { display: none; }
+
+@media (max-width: 700px) {
+  /* One column. `display: contents` on the panel and its pages lets their sections
+     line up with the preview in a single column, so the preview can sit straight
+     under the attendee list instead of below every setting. The hidden tab page
+     still disappears: `.panel-page[hidden]` is display:none !important. */
+  .app {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel-bg);
+    /* Room for the pinned Export PDF bar, including the iPhone home indicator. */
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+  .side-panel,
+  .panel-page { display: contents; }
+
+  .app > *,
+  .side-panel > *,
+  .panel-page > * { padding-left: 16px; padding-right: 16px; }
+
+  .side-panel-head { order: 1; margin: 16px 0 12px; }
+  .panel-tabs      { order: 2; margin: 0 16px 16px; padding: 3px; }
+  #sheet-panel     { order: 3; }
+  #entry-form      { order: 3; }
+  #bulk-paste      { order: 4; }
+  #attendee-list   { order: 5; }
+  .preview-col     { order: 6; }
+  #share-help      { order: 7; }
+  #csv-details     { order: 8; }
+  /* The per-badge font-size override is a fine-tuning tool for the laptop; the phone
+     version is kept simple. Nudges saved on a laptop still apply to the PDF. */
+  #override-panel  { display: none; }
+  #data-controls   { order: 10; }
+
+  .panel-page > div:not(:empty),
+  .panel-page > details { margin-bottom: 16px; padding-bottom: 16px; }
+
+  /* The preview: a grey band the width of the screen, sheet scaled to fit it.
+     app.js sets --fit and the root's size; the sheet itself is still drawn at the
+     one preview scale, so what it shows is exactly what it shows on a laptop. */
+  .preview-col { overflow: hidden; padding: 0; margin-bottom: 16px; }
+  .preview-col-inner { min-width: 0; padding: 16px; gap: 12px; }
+  #preview-root { display: block; overflow: hidden; }
+  #preview-root > .sheet { transform: scale(var(--fit, 1)); transform-origin: 0 0; }
+
+  /* Taps: 44px targets (Apple's minimum), and 16px text in fields — below 16px an
+     iPhone zooms the whole page in when a field is tapped. */
+  .side-panel input[type="text"],
+  .side-panel input[type="number"],
+  .side-panel textarea,
+  .side-panel select { font-size: 16px; padding: 10px 12px; }
+  button { min-height: 44px; font-size: 15px; padding: 8px 14px; }
+  .att-acts button, .ov-row button { min-height: 36px; min-width: 36px; padding: 4px 10px; }
+  .panel-tab { min-height: 40px; font-size: 14px; }
+
+  /* .collapse-on-phone named explicitly: the desktop rule hiding its summary is more
+     specific than a bare `details > summary`. */
+  details > summary,
+  .collapse-on-phone > summary {
+    display: block;
+    min-height: 44px;
+    padding: 12px 0;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .phone-only { display: block; }
+  .share-help h3 { margin: 12px 0 4px; font-size: 14px; }
+  .share-help ol { margin: 0 0 8px; padding-left: 20px; }
+  .share-help li { margin: 0 0 6px; }
+
+  /* Export PDF pinned to the bottom of the screen, full width. The Word export is
+     not offered on a phone. It is only on the Badges tab, because it lives there. */
+  [data-badge-docx-export] { display: none !important; }
+  #data-controls > .pdf-export {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    margin: 0;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--panel-bg);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+  }
+  #data-controls > .pdf-export [data-badge-pdf-export] { width: 100%; min-height: 48px; font-size: 16px; }
+}
+

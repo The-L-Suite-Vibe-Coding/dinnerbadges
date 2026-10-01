@@ -1091,6 +1091,20 @@
 
   /* ---------------------------------------------------- 9a. entry form */
 
+  /* Phone keyboards (added 2026-09-30). On a touchscreen the Enter key is shown as
+     "Next" and walks down the four fields, and only the last one adds the badge, so
+     a name can be typed without reaching for the screen. With a mouse and keyboard,
+     Enter in ANY field adds, exactly as before. `pointer: coarse` asks whether the
+     main pointer is a finger - which is what decides which keyboard is in use -
+     rather than guessing from the screen width. */
+  function isTouchKeyboard() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    } catch (err) {
+      return false;
+    }
+  }
+
   function mountEntryForm(root) {
     if (!root) return;
     clear(root);
@@ -1101,9 +1115,17 @@
 
     for (var i = 0; i < FIELDS.length; i++) {
       var f = FIELDS[i];
+      var isLastField = i === FIELDS.length - 1;
       var input = el('input', {
         className: 'entry-input',
-        attrs: { type: 'text', id: 'entry-' + f, placeholder: FIELD_LABELS[f] }
+        attrs: {
+          type: 'text', id: 'entry-' + f, placeholder: FIELD_LABELS[f],
+          // Virtual keyboards only; a desktop browser ignores all four.
+          autocapitalize: 'words',
+          autocorrect: 'off',
+          spellcheck: 'false',
+          enterkeyhint: isLastField ? 'done' : 'next'
+        }
       });
       inputs[f] = input;
       var label = el('label', { text: FIELD_LABELS[f], attrs: { 'for': 'entry-' + f } });
@@ -1144,7 +1166,14 @@
 
     addBtn.addEventListener('click', submit);
     grid.addEventListener('keydown', function (ev) {
-      if (ev && ev.key === 'Enter') { ev.preventDefault(); submit(); }
+      if (!ev || ev.key !== 'Enter') return;
+      ev.preventDefault();
+      var at = FIELDS.indexOf(ev.target && ev.target.id ? String(ev.target.id).replace('entry-', '') : '');
+      if (isTouchKeyboard() && at !== -1 && at < FIELDS.length - 1) {
+        inputs[FIELDS[at + 1]].focus();
+        return;
+      }
+      submit();
     });
 
     root.appendChild(grid);
@@ -1440,6 +1469,7 @@
        Nothing outside this file should depend on them. */
     internals: {
       FIELDS: FIELDS,
+      mountEntryForm: mountEntryForm,
       normalizeHeader: normalizeHeader,
       matchHeader: matchHeader,
       splitLine: splitLine,
