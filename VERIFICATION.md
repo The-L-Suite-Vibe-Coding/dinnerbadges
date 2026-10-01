@@ -1546,3 +1546,30 @@ re-checks on `resize`, but folds or unfolds only when the layout actually switch
 iPhone resizes the page as its address bar hides, which must not re-fold a section the
 user just opened). Verified: folded on phone load, stays open after a phone resize once
 opened, and reopens on switching to laptop width.
+
+## 15. Logo on blank badges, added 2026-09-30
+
+A checkbox under the logo upload: **"Also put the logo on blank badges (the spare spots on
+the last sheet)"**. Julia's choices: leftover spots on the last sheet only (no extra blank
+sheets), unticked by default, remembered, logo only on a blank badge.
+
+- **Store:** `lsuite.badges.logoFillBlanks`, exactly `true`/`false`; anything else reads as
+  the default `BadgeSpec.LOGO_FILL_BLANKS_DEFAULT` (false). Cleared by Clear all data.
+- **PDF:** on a part-filled last sheet the slot loop no longer stops at the last attendee
+  when the box is ticked; each leftover slot gets `drawLogo()` at the reserve the sheet's
+  own badges were laid out against (the reserve is sheet-wide, so it is identical). Same
+  embedded image object. Unticked, the loop stops exactly as before.
+- **Preview:** the same rule — the first occupied cell's engine reserve is carried to the
+  empty cells that follow it on the page.
+- **Panel:** the box is disabled until a logo is uploaded and the reserve is on.
+
+Verified: pdf "logo on blank badges" (+15): 14 attendees → `[6,6,2]` placements unticked,
+`[6,6,6]` ticked, one image object; RASTER: a blank spot's logo at x 225.0–279.4,
+y 382.3–409.7 (the same as a named badge) with zero ink elsewhere on that badge; same
+word count on the sheet either way; a full last sheet unchanged `[6,6]`; reserve off or
+no logo → text-only. Forcing the feature off in `pdf.js` turns 2 of those checks red.
+store §20 (+21). Node total 30,650, all green; browser suite 86/86. In the browser: box
+disabled with no logo, unticked by default; ticked → 3 named + 3 blank logos, the blank
+one at (225, 166.5) 54 × 27; reserve off → none and box disabled; survives reload; fits
+at phone width; console clean.
+

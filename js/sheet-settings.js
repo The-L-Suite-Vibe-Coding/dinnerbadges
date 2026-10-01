@@ -667,6 +667,26 @@
     });
     panel.appendChild(refs.imageNote);
 
+    // Blank badges: the leftover spots on a part-filled last sheet.
+    var fillRow = el('label', { className: 'ss-toggle ss-toggle-after' });
+    refs.fillBlanks = el('input', {
+      id: 'logo-fill-blanks',
+      attrs: { type: 'checkbox', 'aria-label': 'Put the logo on blank badges too' }
+    });
+    refs.fillBlanks.type = 'checkbox';
+    refs.fillBlanks.addEventListener('change', function () {
+      var d = deps();
+      if (d && typeof d.store.setLogoFillBlanks === 'function') {
+        try { d.store.setLogoFillBlanks(refs.fillBlanks.checked === true); } catch (err) { /* ignore */ }
+      }
+      renderLogo();
+    });
+    fillRow.appendChild(refs.fillBlanks);
+    fillRow.appendChild(el('span', {
+      text: 'Also put the logo on blank badges (the spare spots on the last sheet)'
+    }));
+    panel.appendChild(fillRow);
+
     // ---- sheet layout preset ------------------------------------------
     panel.appendChild(subLabel('Sheet layout', true));
     panel.appendChild(
@@ -965,6 +985,14 @@
      and the PDF make — rather than re-deriving the padding here. */
   function renderLogoImage(d, cfg, g) {
     var img = logoImageConfig(d);
+    var canFill = typeof d.store.getLogoFillBlanks === 'function';
+    var fillOn = false;
+    if (canFill) {
+      try { fillOn = d.store.getLogoFillBlanks() === true; } catch (err) { fillOn = false; }
+    }
+    logoEls.fillBlanks.checked = fillOn;
+    // Usable only when there is a logo that will actually print.
+    logoEls.fillBlanks.disabled = !canFill || !img || !cfg.enabled;
     logoEls.uploadBtn.textContent = img ? 'Replace logo…' : 'Upload logo…';
     logoEls.uploadBtn.disabled = typeof d.store.setLogoImage !== 'function';
     logoEls.removeBtn.hidden = !img;

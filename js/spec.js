@@ -94,6 +94,10 @@
     // arithmetic is BadgeLayout.logoImageRect().
     LOGO_IMAGE_PAD_PT: 9,
     LOGO_IMAGE_TYPES: ['png', 'jpeg'],
+    // Whether the leftover empty spots on a part-filled last sheet also get the logo,
+    // so spare stock is ready for walk-ins (added 2026-09-30). Off by default: blanks
+    // print empty, as they always have. Only the logo is drawn on a blank — no text.
+    LOGO_FILL_BLANKS_DEFAULT: false,
 
     // ---- horizontal alignment -------------------------------------------
     // Sheet-wide, not per badge. LEFT is the default: all four lines flush to a

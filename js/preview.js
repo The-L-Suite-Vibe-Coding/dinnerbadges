@@ -776,8 +776,38 @@
     }
   }
 
-  /** Paint one badge into one absolutely-positioned cell. */
-  function paintCell(indexOnPage, attendee, overrides, opts, presetKey, logoImage) {
+  function readFillBlanks() {
+    var S = store();
+    if (!S || typeof S.getLogoFillBlanks !== 'function') return false;
+    try {
+      return S.getLogoFillBlanks() === true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /* The cell's own coordinate system, in POINTS. viewBox does the pt -> px
+     conversion, so every number handed to the DOM is the engine's own number,
+     unscaled and unrounded. */
+  function cellSvg(model) {
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('width', String(model.cellW * SCALE));
+    svg.setAttribute('height', String(model.cellH * SCALE));
+    svg.setAttribute('viewBox', model.viewBox);
+    svg.setAttribute('overflow', 'visible'); // never hide an overflow bug from me
+    svg.style.overflow = 'visible';
+    svg.style.display = 'block';
+    svg.setAttribute('aria-hidden', 'true');
+    return svg;
+  }
+
+  /**
+   * Paint one badge into one absolutely-positioned cell. `logo` is
+   * { image, fillBlanks, sheetReserve } for the sheet, or null; `sheetReserve` is
+   * filled in from the first occupied cell, exactly as js/pdf.js does, and used to
+   * place the logo on the empty spots that follow it when fillBlanks is on.
+   */
+  function paintCell(indexOnPage, attendee, overrides, opts, presetKey, logo) {
     var origin = cellOrigin(indexOnPage, presetKey);
     var override = (overrides && attendee && attendee.id !== undefined)
       ? (overrides[attendee.id] || null) : null;
@@ -802,34 +832,33 @@
 
     if (!model.ok) {
       cell.setAttribute('data-' + (model.reason === 'empty-cell' ? 'empty' : model.reason), '1');
+      /* A leftover spot after the last attendee: just the logo, when asked for. */
+      if (model.reason === 'empty-cell' && logo && logo.fillBlanks && logo.sheetReserve) {
+        var blankLogo = paintLogoImage(logo.sheetReserve, logo.image);
+        if (blankLogo) {
+          var blankSvg = cellSvg(model);
+          blankSvg.appendChild(blankLogo);
+          cell.appendChild(blankSvg);
+          cell.setAttribute('data-blank-logo', '1');
+        }
+      }
       return cell;
     }
     cell.setAttribute('data-attendee-id', String(attendee.id === undefined ? '' : attendee.id));
     if (!model.fits) cell.setAttribute('data-fits', 'false');
 
-    /* The cell's own coordinate system, in POINTS. viewBox does the pt -> px
-       conversion, so every number handed to the DOM is the engine's own number,
-       unscaled and unrounded. */
-    var svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('width', String(model.cellW * SCALE));
-    svg.setAttribute('height', String(model.cellH * SCALE));
-    svg.setAttribute('viewBox', model.viewBox);
-    svg.setAttribute('overflow', 'visible'); // never hide an overflow bug from me
-    svg.style.overflow = 'visible';
-    svg.style.display = 'block';
-    svg.setAttribute('aria-hidden', 'true');
-
+    var svg = cellSvg(model);
     for (var i = 0; i < model.lines.length; i++) svg.appendChild(paintLine(model.lines[i]));
-    /* Only on badges with an attendee, as in the PDF: an empty cell prints nothing. */
-    if (logoImage) {
-      var logoNode = paintLogoImage(model.logoReserve, logoImage);
+    if (logo && model.logoReserve) {
+      if (!logo.sheetReserve) logo.sheetReserve = model.logoReserve;
+      var logoNode = paintLogoImage(model.logoReserve, logo.image);
       if (logoNode) svg.appendChild(logoNode);
     }
     cell.appendChild(svg);
     return cell;
   }
 
-  function buildSheet(attendees, overrides, pageIndex, opts, presetKey, logoImage) {
+  function buildSheet(attendees, overrides, pageIndex, opts, presetKey, logoImage, fillBlanks) {
     var sheet = document.createElement('div');
     sheet.className = 'sheet bp-sheet';
     /* The sheet outline is always the full 612 x 792 pt page; only the grid inside
@@ -848,9 +877,10 @@
 
     var per = perPage();
     var start = pageIndex * per;
+    var logo = logoImage ? { image: logoImage, fillBlanks: !!fillBlanks, sheetReserve: null } : null;
     for (var i = 0; i < per; i++) {
       sheet.appendChild(paintCell(i, attendees[start + i] || null, overrides, opts, presetKey,
-        logoImage));
+        logo));
     }
     return sheet;
   }
@@ -959,7 +989,8 @@
       var onPage = Math.max(0, Math.min(perPage(), attendees.length - clamped * perPage()));
 
       root.textContent = '';
-      root.appendChild(buildSheet(attendees, overrides, clamped, opts, presetKey, logoImage));
+      root.appendChild(buildSheet(attendees, overrides, clamped, opts, presetKey, logoImage,
+        logoImage ? readFillBlanks() : false));
       applyGuides();
 
       if (navRoot) {
@@ -1037,6 +1068,7 @@
       bus.on('sheet:changed', schedule); // sample-top-left <-> Avery grid placement
       bus.on('align:changed', schedule);  // left <-> center text alignment
       bus.on('logoImage:changed', schedule); // uploaded logo added/replaced/removed
+      bus.on('logoFillBlanks:changed', schedule); // logo on the last sheet's blank spots
     } else {
       warnOnce('bus', 'window.BadgeBus is missing — relying on BadgeStore.subscribe alone.');
     }

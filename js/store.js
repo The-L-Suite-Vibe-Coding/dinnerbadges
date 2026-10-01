@@ -25,6 +25,8 @@
  *                             No size cap (Julia, 2026-09-30): a logo too large for the
  *                             browser's quota still works for the visit, and
  *                             setLogoImage() reports that it was not saved.
+ *   lsuite.badges.logoFillBlanks JSON boolean — also print that logo on the leftover empty
+ *                             spots of a part-filled last sheet. Default false.
  *
  * PRIVACY: localStorage only. No cookies, no analytics, no telemetry, no network of any
  * kind. This file calls exactly two host APIs — window.localStorage and console — and
@@ -59,8 +61,9 @@
   var KEY_SHEET = PREFIX + 'sheetPreset';
   var KEY_ALIGN = PREFIX + 'align';
   var KEY_LOGO_IMAGE = PREFIX + 'logoImage';
+  var KEY_LOGO_FILL = PREFIX + 'logoFillBlanks';
   var ALL_KEYS = [KEY_ATTENDEES, KEY_OVERRIDES, KEY_PAGE, KEY_LOGO, KEY_SHEET, KEY_ALIGN,
-    KEY_LOGO_IMAGE];
+    KEY_LOGO_IMAGE, KEY_LOGO_FILL];
 
   var FIELDS = ['first', 'last', 'title', 'company'];
   var NUDGE_FIELDS = ['first', 'last', 'company', 'title'];
@@ -166,6 +169,7 @@
   var sheetPreset = SHEET_DEFAULT_FALLBACK;
   var align = ALIGN_DEFAULT_FALLBACK;
   var logoImage = null;         // uploaded logo { name, type, base64, wPx, hPx }, or null
+  var logoFillBlanks = false;   // also print the logo on the last sheet's empty spots
   var loaded = false;           // has load() run (set in a finally — see load())
   var subscribers = [];
   var idCounter = 0;
@@ -599,6 +603,18 @@
     return out;
   }
 
+  /* BadgeSpec.LOGO_FILL_BLANKS_DEFAULT is the authority; false if spec.js is missing. */
+  function logoFillDefault() {
+    var S = window.BadgeSpec;
+    return !!(S && S.LOGO_FILL_BLANKS_DEFAULT === true);
+  }
+
+  /* Exactly `true` or `false` turns it on or off; anything else (a corrupt value, a
+     string, a number) is the default. */
+  function normalizeFillBlanks(raw) {
+    return raw === true || raw === false ? raw : logoFillDefault();
+  }
+
   function copyLogoImage(img) {
     return img ? { name: img.name, type: img.type, base64: img.base64, wPx: img.wPx, hPx: img.hPx } : null;
   }
@@ -780,6 +796,16 @@
     return saved;
   }
 
+  function logoFillPayload() {
+    return { type: 'logoFillBlanks:changed', logoFillBlanks: logoFillBlanks };
+  }
+
+  function changedLogoFill() {
+    writeJson(KEY_LOGO_FILL, logoFillBlanks);
+    notify(logoFillPayload);
+    emit('logoFillBlanks:changed', { logoFillBlanks: logoFillBlanks });
+  }
+
   function changedLogo() {
     writeJson(KEY_LOGO, logo);
     notify(logoPayload);
@@ -836,6 +862,11 @@
     } catch (err) {
       console.warn('[BadgeStore] logo image unreadable — treating it as no logo.', err);
       logoImage = null;
+    }
+    try {
+      logoFillBlanks = normalizeFillBlanks(readJson(KEY_LOGO_FILL, null));
+    } catch (err) {
+      logoFillBlanks = logoFillDefault();
     }
     try {
       // Overrides whose attendee is gone never come back; drop them at the door and
@@ -1265,6 +1296,22 @@
       return { ok: true, saved: changedLogoImage() };
     },
 
+    /* Whether the leftover empty spots on the last sheet also get the logo. */
+    getLogoFillBlanks: function getLogoFillBlanks() {
+      ensureLoaded();
+      return logoFillBlanks;
+    },
+
+    /* true / false; anything else is ignored. Returns the value in force. */
+    setLogoFillBlanks: function setLogoFillBlanks(on) {
+      ensureLoaded();
+      if (on !== true && on !== false) return logoFillBlanks;
+      if (on === logoFillBlanks) return logoFillBlanks;
+      logoFillBlanks = on;
+      changedLogoFill();
+      return logoFillBlanks;
+    },
+
     // ---- nuke ----------------------------------------------------------------
     /*
      * Wipe everything, then PROVE it. Removes every key under the prefix (scanned, not
@@ -1291,6 +1338,7 @@
       sheetPreset = sheetPresetDefault();
       align = alignDefault(); // back to 'left'
       logoImage = null;
+      logoFillBlanks = logoFillDefault();
       loaded = true; // state is authoritative now; don't re-read on next access
       warnedWrite = false;
 
@@ -1301,6 +1349,7 @@
       notify(sheetPayload);
       notify(alignPayload);
       notify(logoImagePayload);
+      notify(logoFillPayload);
       emit('data:changed', { attendees: [] });
       emit('override:changed', { id: null, overrides: {} });
       emit('page:changed', { pageIndex: 0 });
@@ -1308,6 +1357,7 @@
       emit('sheet:changed', { sheetPreset: sheetPreset });
       emit('align:changed', { align: align });
       emit('logoImage:changed', { logoImage: null });
+      emit('logoFillBlanks:changed', { logoFillBlanks: logoFillBlanks });
 
       if (survivors.length) {
         console.warn('[BadgeStore] clearAll() FAILED to delete ' + survivors.length +
@@ -1339,7 +1389,8 @@
       logo: KEY_LOGO,
       sheetPreset: KEY_SHEET,
       align: KEY_ALIGN,
-      logoImage: KEY_LOGO_IMAGE
+      logoImage: KEY_LOGO_IMAGE,
+      logoFillBlanks: KEY_LOGO_FILL
     },
     PREFIX: PREFIX,
 

@@ -1781,6 +1781,42 @@ section('19. uploaded logo image: lsuite.badges.logoImage');
   off();
 })();
 
+/* ---------------------------------------- 20. logo on blank badges (2026-09-30) */
+
+section('20. logo on blank badges: lsuite.badges.logoFillBlanks');
+(function () {
+  var KEY = 'lsuite.badges.logoFillBlanks';
+  shim = makeShim();
+  globalThis.localStorage = shim;
+  var F = freshStore();
+  F.init();
+  eq(F.KEYS.logoFillBlanks, KEY, 'KEYS.logoFillBlanks names the storage key');
+  eq(F.getLogoFillBlanks(), false, 'off by default — blanks print empty, as before');
+  eq(shim._raw(KEY), undefined, 'nothing written until it is changed');
+  var events = [];
+  F.subscribe(function (c) { events.push(c.type); });
+  eq(F.setLogoFillBlanks(true), true, 'can be switched on');
+  eq(shim._raw(KEY), 'true', 'and is saved');
+  ok(events.indexOf('logoFillBlanks:changed') !== -1, 'subscribers hear logoFillBlanks:changed');
+  eq(freshStore().getLogoFillBlanks(), true, 'remembered after a reload');
+  var writes = shim.setItemCalls;
+  F.setLogoFillBlanks(true);
+  eq(shim.setItemCalls, writes, 're-setting the same value costs no write');
+  ['true', 1, null, undefined, {}].forEach(function (v) {
+    eq(F.setLogoFillBlanks(v), true, 'ignored, not coerced: ' + JSON.stringify(v));
+  });
+  ['"true"', '1', '{oops', '[true]'].forEach(function (raw) {
+    shim._put(KEY, raw);
+    eq(freshStore().getLogoFillBlanks(), false, 'junk on disk reads as the default (off): ' + raw);
+  });
+  shim._put(KEY, 'true');
+  var G = freshStore();
+  eq(G.getLogoFillBlanks(), true, 'a real saved true reads back');
+  eq(G.clearAll(), true, 'clearAll() succeeds');
+  eq(shim.getItem(KEY), null, 'clearAll() removes it');
+  eq(G.getLogoFillBlanks(), false, 'and it is back to off');
+})();
+
 /* ------------------------------------------------------------------------ report */
 
 console.warn = realWarn;

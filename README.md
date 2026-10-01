@@ -69,10 +69,10 @@ about the badges changes — same fit engine, same PDF.
 **Everything stays in your browser, on your machine.**
 
 - Attendee names, titles, companies, your font-size tweaks, and your sheet settings are saved
-  in the browser's **`localStorage`** under seven keys — `lsuite.badges.attendees`,
+  in the browser's **`localStorage`** under eight keys — `lsuite.badges.attendees`,
   `lsuite.badges.overrides`, `lsuite.badges.pageIndex`, `lsuite.badges.logo`,
-  `lsuite.badges.sheetPreset`, `lsuite.badges.align`, and `lsuite.badges.logoImage` (an
-  uploaded logo, if you add one). That is a small storage area
+  `lsuite.badges.sheetPreset`, `lsuite.badges.align`, `lsuite.badges.logoImage` (an
+  uploaded logo, if you add one), and `lsuite.badges.logoFillBlanks`. That is a small storage area
   belonging to this one page in this one browser. **Clear all data removes every one of them**
   (and anything else stored under the `lsuite.badges.` prefix).
 - **Zero network requests at runtime.** There is no `fetch`, no `XMLHttpRequest`, no
@@ -294,6 +294,10 @@ corner of every badge that has an attendee, shrunk to fit with **1/8″ clear** 
   or **Clear all data** deletes it. There is no size limit; if a file is too large for the
   browser to save, it still works until you reload, and the panel says so.
 - **The Word export does not include it** — the corner is left empty there. Print from the PDF.
+- **Blank badges:** tick **"Also put the logo on blank badges"** to print the logo on the
+  spare spots of a part-filled last sheet too (e.g. the 4 spares when 14 attendees fill 3
+  sheets), ready for walk-ins. They get the logo only — no text. Unticked by default,
+  remembered in this browser, and greyed out until a logo is uploaded and the reserve is on.
 
 **Sheet layout** — where the whole 2 x 3 grid sits on the page. It moves the grid, not the badge
 contents. Two options:

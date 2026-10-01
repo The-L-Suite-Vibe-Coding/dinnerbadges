@@ -1649,6 +1649,71 @@ function checkLogoImage() {
         });
     })
     .then(function () {
+      head('logo on blank badges — the last sheet\'s leftover spots');
+      var fourteen = fixture('fourteen.json');
+      var base = { logo: LOGO_1IN, logoImage: LOGO_PNG };
+      function withFill(on) { return Object.assign({}, base, { logoFillBlanks: on }); }
+      return build(fourteen, 'fill-off.pdf', withFill(false))
+        .then(function (res) { return doCountsPerPage(res.file); })
+        .then(function (c) {
+          assert(JSON.stringify(c.perPage) === '[6,6,2]', 'box unticked: the 4 blanks on sheet 3 stay empty',
+            JSON.stringify(c.perPage));
+          return build(fourteen, 'fill-on.pdf', withFill(true));
+        })
+        .then(function (res) {
+          return doCountsPerPage(res.file).then(function (c) {
+            assert(JSON.stringify(c.perPage) === '[6,6,6]', 'box ticked: all 6 spots on sheet 3 get the logo',
+              JSON.stringify(c.perPage));
+            assert(c.images === 1, 'still one image object in the file', c.images + '');
+            // Blank spot 3 on sheet 3 (cell index 2, sample grid origin (0, 216)): the logo
+            // lands exactly where it does on a named badge — x 225..279, y 382.5..409.5.
+            var R = raster(res.file, 3);
+            var o = originsFor(S.SHEET_PRESET_DEFAULT)[2];
+            var ink = R.scan(o[0] + 216, o[1] + 144, o[0] + 288, o[1] + 216);
+            assert(ink.count > 0 && near(ink.x0, o[0] + 225, 0.75) && near(ink.x1, o[0] + 279, 0.75) &&
+              near(ink.y0, o[1] + 166.5, 0.75) && near(ink.y1, o[1] + 193.5, 0.75),
+              'RASTER: a blank spot\'s logo sits in the same place as on a named badge',
+              ink.count ? 'ink x ' + f(ink.x0) + '..' + f(ink.x1) + ', y ' + f(ink.y0) + '..' + f(ink.y1) : 'no ink');
+            var body = R.scan(o[0], o[1], o[0] + 216, o[1] + 216);
+            assert(body.count === 0, 'RASTER: and nothing else is printed on the blank badge',
+              body.count + ' ink px outside the logo corner');
+            return extract(res.file);
+          });
+        })
+        .then(function (pages) {
+          var words = pages[2].words.length;
+          var off = 0;
+          return build(fourteen, 'fill-off-text.pdf', withFill(false)).then(function (r2) {
+            off = extract(r2.file)[2].words.length;
+            assert(words === off, 'ticking the box adds no text to sheet 3', words + ' vs ' + off + ' words');
+          });
+        })
+        .then(function () {
+          return build(fixture('six.json').concat(fixture('six.json')), 'fill-exact.pdf', withFill(true));
+        })
+        .then(function (res) { return doCountsPerPage(res.file); })
+        .then(function (c) {
+          assert(JSON.stringify(c.perPage) === '[6,6]', 'a full last sheet has no blanks, so nothing changes',
+            JSON.stringify(c.perPage));
+          return build(fourteen, 'fill-no-reserve.pdf', { logo: { enabled: false }, logoImage: LOGO_PNG, logoFillBlanks: true });
+        })
+        .then(function (res) { return checkTextOnly(res.file, 'box ticked, reserve OFF'); })
+        .then(function () {
+          return build(fourteen, 'fill-no-logo.pdf', { logo: LOGO_1IN, logoImage: null, logoFillBlanks: true });
+        })
+        .then(function (res) { return checkTextOnly(res.file, 'box ticked, no logo uploaded'); })
+        .then(function () {
+          assert(BadgePdf.resolveLogoFillBlanks({}) === false, 'resolveLogoFillBlanks: opts without the key -> off');
+          assert(BadgePdf.resolveLogoFillBlanks({ logoFillBlanks: 'yes' }) === false, 'only exactly true turns it on');
+          var saved = global.BadgeStore;
+          global.BadgeStore = { getLogoFillBlanks: function () { return true; } };
+          assert(BadgePdf.resolveLogoFillBlanks() === true, 'no opts: the store value');
+          global.BadgeStore = { getLogoFillBlanks: function () { throw new Error('boom'); } };
+          assert(BadgePdf.resolveLogoFillBlanks() === false, 'a throwing store: off');
+          if (saved === undefined) delete global.BadgeStore; else global.BadgeStore = saved;
+        });
+    })
+    .then(function () {
       head('uploaded logo image — nothing drawn where it cannot go');
       return build(six, 'logo-image-reserve-off.pdf', { logo: { enabled: false }, logoImage: LOGO_PNG })
         .then(function (res) { return checkTextOnly(res.file, 'image uploaded, reserve OFF'); })

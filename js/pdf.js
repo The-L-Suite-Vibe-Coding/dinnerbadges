@@ -32,6 +32,11 @@
  * very badge's layout() call returned, so text and logo cannot disagree. No upload
  * means no image, and the file is exactly as text-only as it always was.
  *
+ * BLANK BADGES (added 2026-09-30). With BadgeStore.getLogoFillBlanks() on, the leftover
+ * empty spots of a part-filled last sheet get the same logo and nothing else, placed
+ * from the reserve that sheet's own badges were laid out against (the reserve is
+ * sheet-wide, so every cell's is identical). Off — the default — they print empty.
+ *
  * Our whole job is to THREAD the setting into every layout() call as the third
  * argument, so the engine narrows and re-centers the affected lines identically for
  * preview and print. Forgetting to pass it is the one failure mode this
@@ -391,6 +396,19 @@
     }
   }
 
+  /* Explicit opts win (`opts.logoFillBlanks`, true only when exactly true); otherwise
+     the live store value. Anything unreadable means off — the default. */
+  function resolveLogoFillBlanks(opts) {
+    if (opts && typeof opts === 'object') return opts.logoFillBlanks === true;
+    var store = window.BadgeStore;
+    if (!store || typeof store.getLogoFillBlanks !== 'function') return false;
+    try {
+      return store.getLogoFillBlanks() === true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   /* Embed the logo once for the whole document; every badge then draws the same
      image object. Any failure is reported in words a person can act on. */
   function embedLogoImage(pdfDoc, img) {
@@ -440,6 +458,7 @@
     // Only printed inside a reserve: with the reserve off there is nowhere kept clear
     // of text to put it, so an uploaded logo simply waits until it is switched on.
     var logoImage = layoutOpts.logo.enabled ? resolveLogoImage(opts) : null;
+    var fillBlanks = logoImage ? resolveLogoFillBlanks(opts) : false;
 
     return PDFDocument.create().then(function (pdfDoc) {
       // Subsetting an arbitrary TTF requires fontkit.
@@ -483,13 +502,34 @@
         var fonts = { regular: embedded[0], bold: embedded[1], italic: embedded[2] };
         var logoXObject = embedded[3];
 
+        function drawLogo(page, cell, reserve) {
+          var r = d.LY.logoImageRect(reserve, logoImage.wPx, logoImage.hPx);
+          if (!r) return;
+          // Same flip as the text, applied to the image's BOTTOM edge (y + h),
+          // because pdf-lib places an image by its lower-left corner.
+          page.drawImage(logoXObject, {
+            x: cell.x + r.x,
+            y: S.PAGE_H - (cell.y + r.y + r.h),
+            width: r.w,
+            height: r.h
+          });
+        }
+
         var pageCount = Math.max(1, Math.ceil(list.length / S.PER_PAGE));
         for (var p = 0; p < pageCount; p++) {
           var page = pdfDoc.addPage([S.PAGE_W, S.PAGE_H]);
+          // The reserve this sheet's badges were laid out against, for its blank spots.
+          var sheetReserve = null;
 
           for (var slot = 0; slot < S.PER_PAGE; slot++) {
             var idx = p * S.PER_PAGE + slot;
-            if (idx >= list.length) break; // partial last page is fine
+            if (idx >= list.length) {
+              // Partial last page: leftover spots print empty, or just the logo.
+              if (!fillBlanks || !sheetReserve) break;
+              var blankCell = S.cellOrigin(slot, presetKey);
+              drawLogo(page, blankCell, sheetReserve);
+              continue;
+            }
 
             var attendee = list[idx] || {};
             // The ONLY source of a cell position in this file. Preset-aware, so the
@@ -515,17 +555,8 @@
             }
 
             if (logoXObject && res.logo && res.logo.enabled) {
-              var r = d.LY.logoImageRect(res.logo.reserve, logoImage.wPx, logoImage.hPx);
-              if (r) {
-                // Same flip as the text, applied to the image's BOTTOM edge (y + h),
-                // because pdf-lib places an image by its lower-left corner.
-                page.drawImage(logoXObject, {
-                  x: cell.x + r.x,
-                  y: S.PAGE_H - (cell.y + r.y + r.h),
-                  width: r.w,
-                  height: r.h
-                });
-              }
+              sheetReserve = res.logo.reserve;
+              drawLogo(page, cell, res.logo.reserve);
             }
           }
         }
@@ -681,6 +712,7 @@
     resolveSheetPreset: resolveSheetPreset,
     resolveAlign: resolveAlign,
     resolveLogoImage: resolveLogoImage,
+    resolveLogoFillBlanks: resolveLogoFillBlanks,
     FILENAME: DEFAULT_FILENAME
   };
 })();
