@@ -194,15 +194,22 @@
       root.style.height = size.h * fit + 'px';
     }
 
+    /* Fold or unfold only when the layout actually SWITCHES. Checked on resize as well
+       as on the media-query change event, because the change event did not fire in
+       every case tested (a narrow window widened again left the CSV folded, and above
+       700px its summary is hidden, so the import vanished). Not on every resize, though:
+       an iPhone resizes the page as its address bar hides, and that must not re-fold a
+       CSV section someone has just opened. */
+    var wasPhone = null;
     function apply() {
-      // Folded on a phone, always open elsewhere (its summary is hidden there).
-      if (csv) csv.open = !phone.matches;
+      if (csv && phone.matches !== wasPhone) csv.open = !phone.matches;
+      wasPhone = phone.matches;
       fitPreview();
     }
 
     if (typeof phone.addEventListener === 'function') phone.addEventListener('change', apply);
     else if (typeof phone.addListener === 'function') phone.addListener(apply);
-    window.addEventListener('resize', fitPreview);
+    window.addEventListener('resize', apply);
     apply();
   }
 

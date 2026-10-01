@@ -1536,3 +1536,13 @@ AirDrop there), retitled "How to send the PDF to your computer". The per-badge f
 override is also hidden on phones (`#override-panel { display: none }`) to keep the phone
 version simple; stored nudges still reach the PDF, which reads them from the store.
 Android has not been tried on a real device.
+
+### 14.5 A fix after release: the CSV section could vanish on a laptop
+
+Found checking the live site: a page loaded at phone width and then widened without a
+reload kept the CSV import folded — and above 700 px its summary is hidden, so the import
+disappeared. The media-query `change` event had not fired in that case. `app.js` now also
+re-checks on `resize`, but folds or unfolds only when the layout actually switches (an
+iPhone resizes the page as its address bar hides, which must not re-fold a section the
+user just opened). Verified: folded on phone load, stays open after a phone resize once
+opened, and reopens on switching to laptop width.
